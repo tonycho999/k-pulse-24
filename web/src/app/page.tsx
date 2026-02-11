@@ -3,186 +3,122 @@
 import { useState, useEffect } from 'react';
 import HotKeywords from '@/components/HotKeywords';
 import GlobalReactions from '@/components/GlobalReactions';
-
-// --- 타입 정의 ---
-type Article = {
-  id: number;
-  title: string;
-  summary: string;
-  artist: string;
-  date: string;
-  image: string;
-  source: string; // 언론사
-};
-
-// --- 더미 데이터 (이미지 & 소스 포함) ---
-const MOCK_NEWS: Article[] = [
-  {
-    id: 1,
-    artist: "BTS",
-    title: "BTS Jin Discharge: Global Fans Celebrate",
-    summary: "Jin completed his military service today. Thousands of fans gathered...",
-    date: "2024-06-12",
-    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Jin_for_Dispatch_%22Boy_With_Luv%22_MV_behind_the_scene_shooting%2C_15_March_2019_03.jpg/440px-Jin_for_Dispatch_%22Boy_With_Luv%22_MV_behind_the_scene_shooting%2C_15_March_2019_03.jpg",
-    source: "Dispatch"
-  },
-  {
-    id: 2,
-    artist: "NewJeans",
-    title: "NewJeans 'How Sweet' Breaks Records",
-    summary: "NewJeans' latest single has topped the Billboard Global charts...",
-    date: "2024-06-12",
-    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/NewJeans_X_OLENS_1.jpg/640px-NewJeans_X_OLENS_1.jpg",
-    source: "Billboard"
-  },
-  {
-    id: 3,
-    artist: "IVE",
-    title: "IVE World Tour Sold Out in Europe",
-    summary: "IVE proves global popularity with sold-out shows in London and Paris...",
-    date: "2024-06-11",
-    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Ive_on_October_13%2C_2023.jpg/640px-Ive_on_October_13%2C_2023.jpg",
-    source: "AllKpop"
-  },
-  {
-    id: 4,
-    artist: "Lisa",
-    title: "BLACKPINK Lisa's New Solo Announcement",
-    summary: "Lisa teases new solo project with a mysterious Instagram post...",
-    date: "2024-06-10",
-    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Lisa_for_Bulgari_Aurora_Awards_2022_01.jpg/460px-Lisa_for_Bulgari_Aurora_Awards_2022_01.jpg",
-    source: "Vogue"
-  }
-];
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default function Home() {
-  const [articles, setArticles] = useState<Article[]>(MOCK_NEWS);
-  const [clickedCount, setClickedCount] = useState(0);
-  const [isSubscribed, setIsSubscribed] = useState(false); // DB 연동 예정
+  const [articles, setArticles] = useState<any[]>([]); 
+  const [user, setUser] = useState<any>(null);
+  const supabase = createClientComponentClient();
 
-  // 1. 로컬 스토리지에서 오늘 클릭 횟수 확인 및 초기화
+  // 데이터 로드 & 유저 체크
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const today = new Date().toISOString().slice(0, 10);
-      const storedDate = localStorage.getItem('lastClickDate');
-      const storedCount = localStorage.getItem('clickCount');
+    const init = async () => {
+      // 1. 세션 확인
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
 
-      if (storedDate === today && storedCount) {
-        setClickedCount(parseInt(storedCount));
-      } else {
-        // 날짜가 바뀌었으면 리셋
-        localStorage.setItem('lastClickDate', today);
-        localStorage.setItem('clickCount', '0');
-        setClickedCount(0);
-      }
-    }
+      // 2. [공개된] 뉴스만 가져오기
+      const { data } = await supabase
+        .from('live_news')
+        .select('*')
+        .eq('is_published', true) // 공개된 것만!
+        .order('id', { ascending: false });
+      
+      if (data) setArticles(data);
+    };
+    init();
   }, []);
 
-  // 2. 카드 클릭 핸들러 (구독 제한 로직)
-  const handleCardClick = (id: number) => {
-    // 구독자가 아니고, 무료 횟수(1회)를 넘었을 때
-    if (!isSubscribed && clickedCount >= 1) {
-      alert("🔒 Free limit reached! Subscribe to read more K-POP news.");
-      return;
-    }
-
-    // 클릭 카운트 증가
-    const newCount = clickedCount + 1;
-    setClickedCount(newCount);
-    localStorage.setItem('clickCount', newCount.toString());
-    
-    alert(`📢 Opening Article #${id} details...`);
-    // 추후 router.push(`/article/${id}`) 등으로 이동
+  const handleLogin = async () => {
+    // Supabase 구글 로그인 (설정 필요)
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
   };
 
   return (
-    <main className="min-h-screen bg-black text-white p-4 md:p-8 font-sans selection:bg-pink-500 selection:text-white">
+    <main className="min-h-screen bg-black text-white p-4 md:p-8 font-sans">
       
-      {/* --- 1. 헤더 영역 (로고 적용) --- */}
+      {/* --- 헤더 --- */}
       <header className="flex justify-between items-center mb-8 max-w-7xl mx-auto">
-        {/* 텍스트 대신 로고 이미지 사용 */}
         <div className="flex items-center gap-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src="/logo.png" 
-              alt="K-POP 24 Logo" 
-              className="h-14 md:h-16 w-auto object-contain drop-shadow-[0_0_15px_rgba(34,211,238,0.6)]" 
-            />
+            <img src="/logo.png" alt="K-POP 24" className="h-14 md:h-16 w-auto object-contain drop-shadow-[0_0_15px_rgba(34,211,238,0.6)]" />
         </div>
 
-        <button 
-          onClick={() => setIsSubscribed(!isSubscribed)} // 테스트용 토글
-          className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all shadow-[0_0_10px_rgba(34,211,238,0.2)] border 
-            ${isSubscribed 
-              ? 'bg-cyan-500 text-black border-cyan-500 hover:bg-cyan-400' 
-              : 'bg-transparent text-cyan-400 border-cyan-500/50 hover:bg-cyan-500/10'
-            }`}
-        >
-          {isSubscribed ? 'SUBSCRIBED (VIP)' : 'LOG IN ($15/yr)'}
-        </button>
+        {user ? (
+          <div className="flex items-center gap-3">
+             <span className="text-cyan-400 text-sm font-bold hidden md:inline">
+               Agent {user.email?.split('@')[0]}
+             </span>
+             <button onClick={() => supabase.auth.signOut()} className="text-xs text-gray-500 border border-gray-700 px-3 py-1 rounded hover:bg-gray-800">
+               Log Out
+             </button>
+          </div>
+        ) : (
+          <button 
+            onClick={handleLogin}
+            className="bg-cyan-500 text-black px-5 py-2 rounded-full text-sm font-bold hover:bg-cyan-400 transition-all shadow-[0_0_15px_rgba(34,211,238,0.4)] animate-pulse"
+          >
+            LOG IN (FREE)
+          </button>
+        )}
       </header>
 
-      {/* --- 2. 상단 뉴스 섹션 (카드형) --- */}
+      {/* --- 뉴스 피드 --- */}
       <section className="mb-8 max-w-7xl mx-auto">
-        <h2 className="text-xl font-bold mb-4 text-gray-200 flex items-center gap-2">
-          Today&apos;s Top News 
-          {!isSubscribed && <span className="text-xs font-normal text-gray-500">(Free limit: {Math.max(0, 1 - clickedCount)}/1)</span>}
-        </h2>
+        <h2 className="text-xl font-bold mb-4 text-gray-200">Live Briefing</h2>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {articles.map((news) => (
-            <div 
-              key={news.id} 
-              onClick={() => handleCardClick(news.id)}
-              className={`group relative h-72 rounded-xl overflow-hidden border transition-all duration-300 cursor-pointer
-                ${!isSubscribed && clickedCount >= 1 
-                  ? 'border-gray-800 opacity-60' // 잠김 상태: 어둡게
-                  : 'border-gray-800 hover:border-pink-500 hover:shadow-[0_0_15px_rgba(236,72,153,0.3)]' // 활성 상태
-                }`}
-            >
-              {/* 배경 이미지 */}
-              <div className="absolute inset-0 bg-gray-900">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src={news.image} 
-                  alt={news.title} 
-                  className="w-full h-full object-cover opacity-60 group-hover:opacity-40 group-hover:scale-110 transition-transform duration-700"
-                />
-              </div>
+            <div key={news.id} className="group relative h-80 rounded-xl overflow-hidden border border-gray-800 hover:border-cyan-500 transition-all bg-gray-900">
               
-              {/* 그라데이션 오버레이 */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+              {/* 배경 이미지 */}
+              <div className="absolute inset-0">
+                <img src={news.image_url || "/logo.png"} className="w-full h-full object-cover opacity-50 group-hover:opacity-30 transition-opacity" />
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
 
-              {/* 텍스트 내용 */}
+              {/* 콘텐츠 */}
               <div className="absolute bottom-0 left-0 p-5 w-full">
-                 <div className="flex justify-between items-end mb-1">
-                    <span className="text-xs text-cyan-300 font-bold bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/30 backdrop-blur-sm">
+                 <div className="flex gap-2 mb-2">
+                    <span className="text-xs text-cyan-300 font-bold bg-cyan-900/40 px-2 py-0.5 rounded border border-cyan-500/30">
                       {news.artist}
                     </span>
-                    <span className="text-[10px] text-gray-400">{news.source}</span>
+                    {/* 키워드(해시태그) 노출 */}
+                    {news.keywords?.slice(0, 1).map((tag: string, i: number) => (
+                        <span key={i} className="text-[10px] text-pink-400 border border-pink-500/30 px-1.5 py-0.5 rounded">
+                            {tag}
+                        </span>
+                    ))}
                  </div>
-                 <h3 className="text-white font-bold text-lg leading-snug line-clamp-2 group-hover:text-pink-200 transition-colors">
-                   {news.title}
-                 </h3>
-              </div>
 
-              {/* 잠금 오버레이 (무료 유저 클릭 소진 시 Hover 효과) */}
-              {!isSubscribed && clickedCount >= 1 && (
-                <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                  <div className="text-3xl mb-2">🔒</div>
-                  <span className="text-xs font-bold text-pink-500 border border-pink-500 px-3 py-1 rounded-full">
-                    SUBSCRIBE TO UNLOCK
-                  </span>
-                </div>
-              )}
+                 <h3 className="text-white font-bold text-lg leading-snug mb-2 line-clamp-2">
+                    {news.title}
+                 </h3>
+                 
+                 {/* 로그인 여부에 따른 블러 처리 (핵심) */}
+                 <div className="relative">
+                    <p className={`text-sm text-gray-300 line-clamp-3 ${!user ? 'blur-sm select-none opacity-50' : ''}`}>
+                      {news.summary}
+                    </p>
+                    
+                    {!user && (
+                      <div className="absolute inset-0 flex items-center justify-center pt-2">
+                        <button onClick={handleLogin} className="text-xs font-bold text-cyan-400 border border-cyan-500 px-3 py-1 rounded-full bg-black/80 hover:bg-cyan-500 hover:text-black transition-all">
+                          🔒 Login to Read
+                        </button>
+                      </div>
+                    )}
+                 </div>
+              </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* --- 3. 하단 데이터 섹션 (좌: 키워드 / 우: 글로벌 반응) --- */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto h-full pb-10">
-        {/* KeywordTicker 대신 새로운 그래프 컴포넌트 사용 */}
+      {/* --- 하단 분석 데이터 (컴포넌트 연동) --- */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto pb-10">
         <HotKeywords />
         <GlobalReactions />
       </section>
