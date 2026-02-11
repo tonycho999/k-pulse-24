@@ -12,61 +12,74 @@ const preciseDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, 
 export async function GET(request: Request) {
   const now = new Date();
   const mins = now.getMinutes();
-  const hour = now.getHours();
 
   try {
     // ---------------------------------------------------------
-    // PHASE 1: 뉴스 스크랩 (00:01 ~ 00:05 사이 랜덤 시작)
+    // PHASE 1: 뉴스 스크랩 (01분~15분 사이 완료)
     // ---------------------------------------------------------
-    if (mins >= 1 && mins <= 5) {
+    if (mins >= 1 && mins <= 10) {
+      // 01분~05분 사이 랜덤 시작 (안정성 확보)
       const msDelay = Math.random() * 240000; 
       await preciseDelay(msDelay);
 
-      // 정교한 쿼리: 주제어 랜덤 선정 + 노이즈 제거 (SNS, 유튜브 제외)
-      const topics = ["comeback", "debut", "world tour", "billboard", "official announcement"];
-      const topic = topics[Math.floor(Math.random() * topics.length)];
-      const refinedQuery = `K-POP (idol OR group) "${topic}" -site:youtube.com -site:instagram.com -site:twitter.com -site:facebook.com`;
+      const query = "K-POP (idol OR group) comeback OR debut";
 
-      const res = await customSearch.cse.list({
+      // 1. Google Search
+      const googleRes = await customSearch.cse.list({
         auth: process.env.GOOGLE_SEARCH_API_KEY,
         cx: process.env.GOOGLE_SEARCH_ENGINE_ID,
-        q: refinedQuery,
-        dateRestrict: 'd1', // 전날 00:00 ~ 23:00 대상 (24시간 이내)
-        num: 10,
-        sort: 'date'
+        q: query,
+        dateRestrict: 'd1',
+        num: 5
       });
 
-      const items = res.data.items || [];
-      for (const item of items) {
+      // 2. Naver Search (추가됨)
+      const naverRes = await fetch(
+        `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(query)}&display=5&sort=sim`,
+        {
+          headers: {
+            'X-Naver-Client-Id': process.env.NAVER_CLIENT_ID!,
+            'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET!,
+          }
+        }
+      );
+      const naverData = await naverRes.json();
+
+      // DB 저장 (Google)
+      const googleItems = googleRes.data.items || [];
+      for (const item of googleItems) {
         await supabase.from('raw_news').upsert({
-          link: item.link,
-          title: item.title,
-          snippet: item.snippet,
-          source: item.displayLink,
-          image_url: item.pagemap?.cse_image?.[0]?.src || null
+          link: item.link, title: item.title, snippet: item.snippet,
+          source: item.displayLink, image_url: item.pagemap?.cse_image?.[0]?.src || null
         }, { onConflict: 'link' });
       }
-      return NextResponse.json({ step: 'Scraping Done', query: topic });
+
+      // DB 저장 (Naver)
+      const naverItems = naverData.items || [];
+      for (const item of naverItems) {
+        await supabase.from('raw_news').upsert({
+          link: item.link, title: item.title.replace(/<[^>]*>?/gm, ''), // HTML 태그 제거
+          snippet: item.description.replace(/<[^>]*>?/gm, ''),
+          source: 'Naver News', image_url: null
+        }, { onConflict: 'link' });
+      }
+
+      return NextResponse.json({ step: 'Scraping Completed', sources: ['Google', 'Naver'] });
     }
 
     // ---------------------------------------------------------
-    // PHASE 2: AI 요약 & Vibe 분석 (00:20 ~ 00:22 사이 랜덤 시작)
+    // PHASE 2: AI 요약 & Vibe 분석 (20분~50분 사이 완료)
     // ---------------------------------------------------------
     if (mins >= 20 && mins <= 25) {
-      const msDelay = Math.random() * 120000;
+      const msDelay = Math.random() * 60000;
       await preciseDelay(msDelay);
 
-      const { data: rawData } = await supabase.from('raw_news').select('*').limit(10);
-      if (!rawData || rawData.length === 0) return NextResponse.json({ status: 'Empty' });
+      const { data: rawData } = await supabase.from('raw_news').select('*').limit(10).order('created_at', { ascending: false });
+      if (!rawData) return NextResponse.json({ status: 'No raw data' });
 
       for (const article of rawData) {
-        const prompt = `Analyze: "${article.title}". 
-        Return JSON ONLY: {
-          "artist": "Artist Name",
-          "summary": "1 sentence cyberpunk summary",
-          "keywords": ["#tag1", "#tag2", "#tag3"],
-          "vibe": { "excitement": 0, "shock": 0, "sadness": 0 }
-        }`;
+        const prompt = `Analyze this K-POP news: "${article.title}". 
+        Return JSON: { "artist": "string", "summary": "1 sentence cyberpunk style", "keywords": ["#tag1", "#tag2", "#tag3"], "vibe": { "excitement": 0, "shock": 0, "sadness": 0 } }`;
 
         const chat = await groq.chat.completions.create({
           messages: [{ role: "user", content: prompt }],
@@ -77,48 +90,27 @@ export async function GET(request: Request) {
         const result = JSON.parse(chat.choices[0]?.message?.content || "{}");
         
         await supabase.from('live_news').insert({
-          artist: result.artist,
-          title: article.title,
-          summary: result.summary,
-          keywords: result.keywords, // text[] 형식
-          reactions: result.vibe,    // jsonb 형식 (VibeCheck 데이터)
-          image_url: article.image_url,
-          source: article.source,
-          is_published: false
+          artist: result.artist, title: article.title, summary: result.summary,
+          keywords: result.keywords, reactions: result.vibe, 
+          image_url: article.image_url, source: article.source, is_published: false
         });
       }
-      return NextResponse.json({ step: 'AI Analysis Done' });
+      return NextResponse.json({ step: 'AI Summarization Done' });
     }
 
     // ---------------------------------------------------------
-    // PHASE 3: 배포(01:00) & 아카이빙(23:00) & 24시간 데이터 삭제
+    // PHASE 3: 배포 (정각)
     // ---------------------------------------------------------
     if (mins === 0) {
-      // 1. 배포: 숨겨진 뉴스 공개
       await supabase.from('live_news').update({ 
         is_published: true, 
         published_at: new Date().toISOString() 
       }).eq('is_published', false);
 
-      // 2. 24시간 지난 원본 삭제
-      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      await supabase.from('raw_news').delete().lt('created_at', yesterday);
-
-      // 3. 23:00 영구 보존 아카이빙
-      if (hour === 23) {
-        const { data: currentNews } = await supabase.from('live_news').select('*').eq('is_published', true);
-        if (currentNews) {
-          const archive = currentNews.map(n => ({
-            artist: n.artist, title: n.title, summary: n.summary,
-            image_url: n.image_url, keywords: n.keywords, reactions: n.reactions
-          }));
-          await supabase.from('archive_news').insert(archive);
-        }
-      }
-      return NextResponse.json({ step: 'Maintenance Done' });
+      return NextResponse.json({ step: 'Daily/Hourly Release Done' });
     }
 
-    return NextResponse.json({ status: 'Standby' });
+    return NextResponse.json({ status: 'Standby', currentMins: mins });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
