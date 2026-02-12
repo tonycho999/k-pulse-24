@@ -20,11 +20,13 @@ MODELS_TO_TRY = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.
 
 # [요구사항 1] 보완 전략 키워드 전체 반영
 SEARCH_KEYWORDS = [
-    "컴백 초동 신기록", "아이돌 빌보드 독점", "뮤직비디오 1억뷰", "챌린지 유행", "엠카 1위", "아이돌 포토카드",
-    "드라마 캐스팅 확정", "OTT 순위 1위", "드라마 제작발표회", "드라마 반전 결말", "인생 캐릭터 배우",
-    "천만 영화 관객수", "영화제 수상 독점", "박스오피스 실시간 예매율", "영화 시사회 무대인사",
-    "예능 대상 후보", "웹예능 유튜브 화제", "예능 시청률 대박", "예능 베스트 커플",
-    "K-푸드 해외 반응", "K-뷰티 신상", "성수동 팝업스토어", "인기 웹툰 드라마화", "K-패션 글로벌 전시"
+    "컴백", "빌보드", "데뷔", "월드투어", "독점", "가수", "아이돌",
+    "뮤직비디오", "챌린지", "유행", "엠카", "포토카드",
+    "시청률", "종영", "넷플릭스", "대본리딩", "배우",
+    "드라마", "캐스팅", "OTT", "제작발표회", "반전 결말", "개봉",
+    "영화", "관객수", "박스오피스", "시사회", "무대인사",
+    "예능", "대상 후보", "유튜브", "개그맨", "개그우먼", "코미디언",
+    "푸드", "해외 반응", "뷰티", "팝업스토어", "웹툰", "패션", "음식"
 ]
 
 def get_naver_api_news(keyword):
@@ -38,26 +40,36 @@ def get_naver_api_news(keyword):
         return json.loads(res.read().decode('utf-8')).get('items', [])
     except: return []
 
+def get_article_image(link):
+    from bs4 import BeautifulSoup
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        res = requests.get(link, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        og_image = soup.find('meta', property='og:image')
+        return og_image['content'] if og_image else None
+    except: return None
+
 def ai_chief_editor(news_batch):
     raw_text = "\n".join([f"[{i}] {n['title']}" for i, n in enumerate(news_batch)])
     prompt = f"""
     Task: Analyze these {len(news_batch)} news items. 
     1. Select exactly 30 news items and rank them 1 to 30 based on buzzworthiness.
     2. Categorize into [k-pop, k-drama, k-movie, k-entertain, k-culture].
-    3. Generate a ONE-SENTENCE "Global Insight" based on REAL top news.
-    
-    News: {raw_text}
+    3. Generate a ONE-SENTENCE "Global Insight" based on the REAL trends found in these news titles. 
+       (e.g., "K-Pop groups are dominating global charts while K-Drama leads OTT rankings.")
     
     Output JSON:
     {{
         "global_insight": "Actual trend summary...",
         "articles": [
-            {{ "original_index": 0, "rank": 1, "category": "k-pop", "eng_title": "...", "summary": "3-line summary", "score": 9.5 }}
+            {{ "original_index": 0, "rank": 1, "category": "k-pop", "eng_title": "...", "summary": "3-line English summary", "score": 9.5 }}
         ]
     }}
     """
     for model in MODELS_TO_TRY:
         try:
+            print(f"🤖 AI 분석 중... (모델: {model})")
             res = groq_client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model=model, response_format={"type": "json_object"})
             return json.loads(res.choices[0].message.content)
         except: continue
@@ -69,30 +81,57 @@ def run():
     for kw in SEARCH_KEYWORDS:
         all_news.extend(get_naver_api_news(kw))
     
+    print(f"🔍 {len(all_news)}건 수집 완료. AI 랭킹 분석 시작...")
     result = ai_chief_editor(all_news)
     if not result: return
 
-    # [요구사항 4] 인사이트 업데이트 (별도 테이블 혹은 첫 번째 기사에 저장)
-    global_insight = result.get('global_insight', "K-Enter news is trending worldwide.")
+    global_insight = result.get('global_insight', "Global entertainment is evolving with K-Wave's latest innovations.")
     
-    # 기존 데이터 삭제 (Fresh Start)
-    supabase.table("live_news").delete().neq("id", "0000").execute()
+    # [요구사항 4] 기존 데이터 삭제 (Fresh Start)
+    supabase.table("live_news").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
 
+    saved = 0
     for art in result.get('articles', []):
-        orig = all_news[art['original_index']]
+        idx = art['original_index']
+        if idx >= len(all_news): continue
+        orig = all_news[idx]
+        
+        img = get_article_image(orig['link'])
+        if not img: img = f"https://placehold.co/600x400/111/cyan?text={art['category']}"
+
         data = {
             "rank": art['rank'],
             "category": art['category'],
             "title": art['eng_title'],
             "summary": art['summary'],
             "link": orig['link'],
+            "image_url": img,
             "score": art['score'],
-            "insight": global_insight, # 모든 기사가 최신 인사이트를 공유하게 저장
+            "insight": global_insight,
             "likes": 0, "dislikes": 0,
             "created_at": datetime.now().isoformat()
         }
+        
+        # 1. 실시간 뉴스 저장
         supabase.table("live_news").insert(data).execute()
-    print(f"✅ {len(result['articles'])}개 뉴스 랭킹 완료.")
+        
+        # 2. [추가] Top 10 기사는 검색 아카이브에 영구 저장
+        if art['rank'] <= 10:
+            archive_data = {
+                "original_link": orig['link'],
+                "category": art['category'],
+                "title": art['eng_title'],
+                "summary": art['summary'],
+                "image_url": img,
+                "score": art['score'],
+                "archive_reason": "Top 10 Rank"
+            }
+            supabase.table("search_archive").upsert(archive_data, on_conflict="original_link").execute()
+            
+        saved += 1
+        print(f"✅ #{art['rank']} 저장 완료")
+
+    print(f"=== 최종 완료: {saved}개 뉴스 업데이트 ===")
 
 if __name__ == "__main__":
     run()
