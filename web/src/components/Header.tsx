@@ -1,11 +1,8 @@
 'use client';
-import { createClient } from '@supabase/supabase-js';
-import { useEffect, useState } from 'react';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase'; // 1. 공용 인스턴스 사용 (createClient 제거)
+import { User, LogOut, Settings, ChevronDown, ShieldCheck } from 'lucide-react';
 
 export default function Header() {
   const [user, setUser] = useState<any>(null);
@@ -17,6 +14,7 @@ export default function Header() {
       setUser(user);
     };
     getUser();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
@@ -36,58 +34,80 @@ export default function Header() {
   };
 
   return (
-    <nav className="flex justify-between items-center py-6 px-4 md:px-0 mb-4 border-b border-gray-800/50">
-      {/* 로고: K-PULSE (네온 효과) */}
-      <div className="text-3xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-600 drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">
-        K-PULSE <span className="text-xs text-gray-500 font-medium tracking-normal align-top">24</span>
+    <header className="flex justify-between items-center mb-8 py-4">
+      {/* 2. 로고 영역: logo.png 적용 및 디자인 변경 */}
+      <div className="flex items-center gap-3 group cursor-pointer">
+        <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all">
+          <img src="/logo.png" alt="K-ENTER 24 Logo" className="w-8 h-8 object-contain" />
+        </div>
+        <div className="flex flex-col">
+          <h1 className="text-xl font-black tracking-tighter text-slate-900 leading-none">
+            K-ENTER <span className="text-cyan-500">24</span>
+          </h1>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+            AI Curation Service
+          </span>
+        </div>
       </div>
 
-      <div className="relative">
+      <div className="flex items-center gap-4 relative">
         {user ? (
-          <div>
+          <div className="relative">
+            {/* 로그인 상태: web2.jpg 스타일의 사용자 버튼 */}
             <button 
               onClick={() => setMenuOpen(!menuOpen)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-900 border border-gray-700 rounded-full hover:border-cyan-500 transition-all"
+              className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-100 rounded-full hover:border-cyan-200 hover:shadow-sm transition-all group"
             >
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-              <span className="text-sm font-bold text-gray-200">{user.email?.split('@')[0]}</span>
+              <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 overflow-hidden border border-white">
+                {user.user_metadata?.avatar_url ? (
+                  <img src={user.user_metadata.avatar_url} alt="profile" />
+                ) : (
+                  <User size={16} />
+                )}
+              </div>
+              <span className="text-xs font-bold text-slate-700 max-w-[80px] truncate">
+                {user.email?.split('@')[0]}
+              </span>
+              <ChevronDown size={14} className={`text-slate-300 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            {/* 드롭다운 메뉴 */}
+            {/* 드롭다운 메뉴: 라이트 테마 & 부드러운 그림자 */}
             {menuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-700 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.8)] overflow-hidden z-50">
-                <div className="px-4 py-3 border-b border-gray-800">
-                  <p className="text-xs text-gray-500">Status</p>
-                  <p className="text-sm text-cyan-400 font-bold">Free Plan</p>
+              <div className="absolute right-0 mt-3 w-56 bg-white border border-slate-100 rounded-[24px] shadow-xl shadow-slate-200/50 overflow-hidden z-[100] p-2">
+                <div className="px-4 py-3 bg-slate-50 rounded-2xl mb-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShieldCheck size={14} className="text-cyan-500" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Account Status</span>
+                  </div>
+                  <p className="text-sm font-black text-slate-800 tracking-tight">Standard Member</p>
                 </div>
-                <a 
-                  href="https://app.lemonsqueezy.com/buy/..." 
-                  target="_blank"
-                  className="block px-4 py-3 text-sm text-white hover:bg-purple-900/50 transition-colors flex justify-between items-center"
-                >
-                  Subscribe ($15/yr) <span className="text-xs bg-purple-600 px-1 rounded">PRO</span>
-                </a>
-                <button className="w-full text-left px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-gray-800">
-                  Settings
-                </button>
-                <button 
-                  onClick={handleLogout}
-                  className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-gray-800 border-t border-gray-800"
-                >
-                  Log Out
-                </button>
+
+                <div className="py-1">
+                  <button className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-colors">
+                    <Settings size={18} className="text-slate-400" />
+                    Settings
+                  </button>
+                  <button 
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                  >
+                    <LogOut size={18} />
+                    Log Out
+                  </button>
+                </div>
               </div>
             )}
           </div>
         ) : (
+          /* 비로그인 상태: web2.jpg 스타일의 로그인 버튼 */
           <button 
             onClick={handleLogin}
-            className="px-6 py-2 text-sm font-bold text-black bg-cyan-400 rounded-full hover:bg-cyan-300 transition-all shadow-[0_0_15px_rgba(34,211,238,0.4)]"
+            className="px-6 py-2.5 text-sm font-black text-white bg-slate-900 rounded-full hover:bg-cyan-500 hover:shadow-lg hover:shadow-cyan-100 transition-all active:scale-95"
           >
-            Log In
+            Sign In
           </button>
         )}
       </div>
-    </nav>
+    </header>
   );
 }
