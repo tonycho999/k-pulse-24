@@ -1,16 +1,13 @@
 from datetime import datetime, timedelta
 from dateutil.parser import isoparse
-from config import supabase, CATEGORY_MAP  # [수정] 점(.) 제거됨
+from config import supabase, CATEGORY_MAP
 
 def get_existing_links(category):
-    """해당 카테고리의 기존 뉴스 링크 조회"""
     res = supabase.table("live_news").select("link").eq("category", category).execute()
     return {item['link'] for item in res.data}
 
 def save_news(news_list):
-    """뉴스 데이터 저장 (Upsert)"""
     if not news_list: return
-    # 중복 링크 제거 (API 에러 방지)
     seen_links = set()
     unique_list = []
     for item in news_list:
@@ -25,12 +22,11 @@ def save_news(news_list):
         print(f"   ⚠️ 저장 실패: {e}")
 
 def manage_slots(category):
-    """30개 유지 로직 (오래된 것 삭제 -> 점수 낮은 것 삭제)"""
     res = supabase.table("live_news").select("id", "created_at", "score").eq("category", category).execute()
     all_articles = res.data
     total_count = len(all_articles)
     
-    print(f"   📊 현재 DB 총 개수: {total_count}개 (목표: 30개 유지)")
+    print(f"   📊 {category.upper()}: 현재 {total_count}개 (목표: 30개)")
 
     if total_count > 30:
         delete_ids = []
@@ -68,21 +64,27 @@ def manage_slots(category):
             print(f"   🧹 공간 확보: {len(delete_ids)}개 삭제 완료 (현재 {remaining_count}개 유지).")
 
 def archive_top_articles():
-    """상위 랭크(Top 10) 기사 아카이빙"""
+    """상위 랭크(Top 10) 기사 아카이빙 - rank 컬럼 기준"""
     print("🗄️ 상위 랭크(Top 10) 기사 아카이빙 시작...")
     for category in CATEGORY_MAP.keys():
-        # [수정] ascending=True 대신 desc=False 사용
-        res = supabase.table("live_news").select("*").eq("category", category).order("rank", desc=False).limit(10).execute()
+        # [수정] rank가 10 이하(lte)인 것만 가져옴, 오름차순 정렬
+        res = supabase.table("live_news")\
+            .select("*")\
+            .eq("category", category)\
+            .lte("rank", 10)\
+            .order("rank", desc=False)\
+            .execute()
+            
         top_articles = res.data
         if top_articles:
             try:
+                # search_archive 테이블에 저장
                 supabase.table("search_archive").upsert(top_articles, on_conflict="link").execute()
                 print(f"   💾 {category.upper()}: Top {len(top_articles)}개 -> 아카이브 저장 완료.")
             except Exception as e:
                 print(f"   ⚠️ 아카이브 저장 실패 ({category}): {e}")
 
 def update_keywords_db(keywords):
-    """키워드 분석 결과 DB 저장"""
     if not keywords: return
     supabase.table("trending_keywords").delete().neq("id", 0).execute()
     
