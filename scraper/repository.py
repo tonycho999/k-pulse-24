@@ -17,7 +17,7 @@ def save_news(news_list):
     unique_list = []
     
     for item in news_list:
-        # [규칙 3] 4점 미만 기사는 저장하지 않음 (리스트 제외)
+        # [규칙 3] 4점 미만 기사는 저장하지 않음
         if item.get('score', 0) < 4.0:
             continue
 
@@ -76,7 +76,6 @@ def manage_slots(category):
 
     # [규칙 6] 그래도 30개가 넘으면 점수 낮은 순 삭제
     if remaining_count > 30:
-        # 삭제 대상이 아닌 기사들만 추림
         survivors = [a for a in all_articles if a['id'] not in delete_ids]
         # 점수 오름차순 정렬 (낮은 점수부터 삭제)
         survivors.sort(key=lambda x: x.get('score', 0))
@@ -92,7 +91,6 @@ def manage_slots(category):
         print(f"   🧹 공간 확보: {len(delete_ids)}개 삭제 완료 (현재 {remaining_count}개 유지).")
     
     # [규칙 7] 삭제 완료 후 남은 기사들에 대해 Rank 재산정 및 업데이트
-    # DB에서 다시 조회하지 않고, 메모리 상에서 남은 것들로 처리
     final_survivors = [a for a in all_articles if a['id'] not in delete_ids]
     _update_rankings(final_survivors)
 
@@ -108,7 +106,6 @@ def _update_rankings(articles):
     updates = []
     for i, art in enumerate(articles):
         new_rank = i + 1
-        # 기존 랭크와 다를 때만 업데이트 (API 호출 최적화)
         if art.get('rank') != new_rank:
             updates.append({"id": art['id'], "rank": new_rank})
             
@@ -122,30 +119,45 @@ def _update_rankings(articles):
 def archive_top_articles():
     """상위 랭크(Top 10) 기사 아카이빙"""
     print("🗄️ 상위 랭크(Top 10) 기사 아카이빙 시작...")
+    
     for category in CATEGORY_MAP.keys():
-        # manage_slots에서 rank가 이미 업데이트되었으므로 rank 기준으로 가져오면 됨
+        # [핵심 수정] rank가 0보다 크고 10 이하인 것 조회
         res = supabase.table("live_news")\
             .select("*")\
             .eq("category", category)\
             .lte("rank", 10)\
+            .gt("rank", 0)\
             .order("rank", desc=False)\
             .execute()
             
         top_articles = res.data
         if top_articles:
             try:
-                # search_archive 테이블에 저장
-                supabase.table("search_archive").upsert(top_articles, on_conflict="link").execute()
-                print(f"   💾 {category.upper()}: Top {len(top_articles)}개 -> 아카이브 저장 완료.")
+                # search_archive 테이블에 저장할 데이터 매핑
+                archive_data = []
+                for art in top_articles:
+                    archive_data.append({
+                        "created_at": art['created_at'],
+                        "category": art['category'],
+                        "title": art['title'],
+                        "summary": art['summary'],
+                        "image_url": art['image_url'],
+                        "original_link": art['link'],  # live_news의 link를 archive의 original_link로 저장
+                        "score": art['score'],
+                        "rank": art['rank']
+                    })
+                
+                # 링크(original_link) 기준으로 중복 방지(upsert)
+                supabase.table("search_archive").upsert(archive_data, on_conflict="original_link").execute()
+                print(f"   💾 {category.upper()}: Top {len(archive_data)}개 -> 아카이브 저장 완료.")
             except Exception as e:
                 print(f"   ⚠️ 아카이브 저장 실패 ({category}): {e}")
 
 def update_keywords_db(keywords):
     if not keywords: return
-    # 기존 키워드 삭제 후 새로 입력 (ID 0 제외 등의 조건은 기존 유지)
     try:
         supabase.table("trending_keywords").delete().neq("id", 0).execute()
-    except: pass # 테이블 비어있을 경우 예외처리
+    except: pass 
     
     insert_data = []
     for i, item in enumerate(keywords):
