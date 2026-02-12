@@ -38,16 +38,12 @@ export default function Header() {
       {/* 로고 영역: K-ENTER 24 로고 및 명칭 */}
       <div className="flex items-center gap-3 group cursor-pointer">
         <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all overflow-hidden">
-          {/* 로고 이미지가 안 보인다면 아래 체크리스트를 확인해 주세요 */}
           <img 
             src="/logo.png" 
             alt="K-ENTER 24 Logo" 
             className="w-full h-full object-contain" 
           />
         </div>
-        <h1 className="text-2xl font-black tracking-tighter text-slate-900 leading-none">
-          K-ENTER <span className="text-cyan-500">24</span>
-        </h1>
       </div>
 
       <div className="flex items-center gap-4 relative">
