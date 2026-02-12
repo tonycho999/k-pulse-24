@@ -1,6 +1,6 @@
 import json
 import re
-from .config import groq_client
+from config import groq_client
 
 def get_best_model():
     """사용 가능한 최신/고성능 AI 모델 자동 선택"""
