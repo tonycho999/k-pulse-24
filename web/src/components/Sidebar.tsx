@@ -1,6 +1,7 @@
 'use client';
 
-import HotKeywords from './HotKeywords';
+// [수정 1] HotKeywords 대신 KeywordTicker를 import 합니다.
+import KeywordTicker from './KeywordTicker';
 import VibeCheck from './VibeCheck';
 import { Trophy } from 'lucide-react';
 
@@ -16,8 +17,8 @@ export default function Sidebar({ news }: SidebarProps) {
 
   return (
     <aside className="lg:col-span-4 space-y-6">
-      {/* 1. 실시간 급상승 키워드 */}
-      <HotKeywords />
+      {/* [수정 2] 컴포넌트 이름을 KeywordTicker로 변경합니다. */}
+      <KeywordTicker />
 
       {/* 2. AI 감성 분석 (Vibe Check) */}
       <VibeCheck />
@@ -43,12 +44,12 @@ export default function Sidebar({ news }: SidebarProps) {
                   {m.title}
                 </p>
                 <div className="flex items-center gap-3">
-                   <span className="text-[11px] font-black text-cyan-400 bg-cyan-50 px-2 py-0.5 rounded-md">
-                     👍 {m.likes} Likes
-                   </span>
-                   <span className="text-[11px] font-bold text-slate-400">
-                     Score {m.score}
-                   </span>
+                    <span className="text-[11px] font-black text-cyan-400 bg-cyan-50 px-2 py-0.5 rounded-md">
+                      👍 {m.likes} Likes
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">
+                      Score {m.score}
+                    </span>
                 </div>
               </div>
             ))
