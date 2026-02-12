@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from dateutil.parser import isoparse
-from .config import supabase, CATEGORY_MAP
+from config import supabase, CATEGORY_MAP
 
 def get_existing_links(category):
     """해당 카테고리의 기존 뉴스 링크 조회"""
