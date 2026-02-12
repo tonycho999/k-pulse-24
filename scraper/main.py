@@ -1,8 +1,8 @@
 import os
 import sys
 import json
-import urllib.request
-import urllib.parse
+import time
+import random
 import requests
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
@@ -25,72 +25,92 @@ supabase: Client = create_client(supabase_url, supabase_key)
 groq_client = Groq(api_key=groq_api_key)
 AI_MODEL = "llama-3.3-70b-versatile"
 
-SEARCH_KEYWORDS = ["K-POP 아이돌", "한국 인기 드라마", "한국 영화 화제", "한국 예능 레전드"]
+# 사람처럼 보이기 위한 고정 헤더
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Referer': 'https://news.naver.com/'
+}
 
-def get_real_news_image(link):
+# 2. [기능 1] 네이버 연예 랭킹 30개 수집 (Selenium 스타일 직접 스크래핑)
+def get_naver_ranking_30():
+    print("📡 네이버 연예 실시간 랭킹 30 수집 중...")
+    ranking_url = "https://entertain.naver.com/ranking"
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Referer': 'https://news.naver.com/'
-        }
-        response = requests.get(link, headers=headers, timeout=10)
-        if response.status_code != 200: return None
-        soup = BeautifulSoup(response.text, 'html.parser')
+        res = requests.get(ranking_url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        items = []
+        # 네이버 랭킹 뉴스 리스트 태그 (네이버 페이지 구조에 따라 수시 변경될 수 있음)
+        # 보통 .rank_lst 나 .tit_area 안의 a 태그를 찾습니다.
+        news_links = soup.select('.rank_lst li a.tit') or soup.select('.tit_area a')
         
-        # 1. og:image 탐색
-        og_image = soup.find('meta', property='og:image')
-        img_url = og_image['content'] if og_image and og_image.get('content') else None
-        
-        # 2. 본문 이미지 탐색
-        if not img_url or "static.naver.net" in img_url:
-            selectors = ['#dic_area img', '#articleBodyContents img', '.article_kanvas img', '.article_body img']
-            for s in selectors:
-                tag = soup.select_one(s)
-                if tag and tag.get('src'):
-                    img_url = tag['src']
-                    break
-        
-        return urljoin(link, img_url) if img_url else None
-    except: return None
+        for i, a in enumerate(news_links[:30]):
+            items.append({
+                'title': a.get_text(strip=True),
+                'link': urljoin(ranking_url, a['href']),
+                'is_ranking': True,
+                'rank': i + 1
+            })
+        return items
+    except Exception as e:
+        print(f"⚠️ 랭킹 수집 실패: {e}")
+        return []
 
+# 3. [기능 2] 부족한 카테고리용 검색어 기반 수집 (API 방식)
 def get_naver_api_news(keyword):
+    import urllib.parse
+    import urllib.request
     encText = urllib.parse.quote(keyword)
-    url = f"https://openapi.naver.com/v1/search/news?query={encText}&display=15&sort=sim"
+    url = f"https://openapi.naver.com/v1/search/news?query={encText}&display=10&sort=sim"
     req = urllib.request.Request(url)
     req.add_header("X-Naver-Client-Id", naver_client_id)
     req.add_header("X-Naver-Client-Secret", naver_client_secret)
     try:
         res = urllib.request.urlopen(req)
-        return json.loads(res.read().decode('utf-8')).get('items', [])
+        items = json.loads(res.read().decode('utf-8')).get('items', [])
+        return [{'title': i['title'], 'link': i['link'], 'is_ranking': False} for i in items]
     except: return []
 
-def ai_chief_editor(news_batch):
-    news_text = ""
-    for idx, item in enumerate(news_batch):
-        clean_title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
-        news_text += f"{idx+1}. {clean_title}\n"
+# 4. [기능 3] 기사 본문 및 실제 이미지 추출
+def get_article_details(link):
+    try:
+        res = requests.get(link, headers=HEADERS, timeout=7)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 이미지 찾기
+        og_image = soup.find('meta', property='og:image')
+        img_url = og_image['content'] if og_image else None
+        
+        # 본문 텍스트 찾기 (요약용)
+        content = soup.select_one('#dic_area, #articleBodyContents, .article_body')
+        text = content.get_text(strip=True)[:1000] if content else ""
+        
+        return text, img_url
+    except: return "", None
 
-    # 프롬프트 상세화 (AI가 헷갈리지 않게)
+# 5. [기능 4] AI 편집장: 요약 및 카테고리 분류 (홈, 음악, 영화, 드라마, 연예)
+def ai_chief_editor(news_list):
+    # AI에게 전달할 텍스트 구성
+    raw_text = "\n".join([f"[{i}] {n['title']}" for i, n in enumerate(news_list)])
+    
     prompt = f"""
-    Role: Chief Editor of 'K-ENTER 24'.
-    Analyze these news titles and select exactly 12 most interesting ones.
-    Output MUST be a valid JSON object with "global_insight" and an "articles" array.
+    Role: K-ENTER 24 Chief Editor.
+    Task: Analyze the news and categorize into [Music, Movie, Drama, Celeb].
+    Top 30 ranking news should also be assigned to Home.
     
-    Raw Titles:
-    {news_text}
+    Raw News:
+    {raw_text}
     
-    JSON Schema:
+    JSON Output Format:
     {{
-        "global_insight": "summary",
         "articles": [
             {{
-                "category": "K-POP",
-                "artist": "Subject",
-                "title": "Headline",
-                "summary": "Short summary",
-                "score": 9,
-                "reactions": {{"excitement": 80, "sadness": 0, "shock": 20}},
-                "original_title_index": 1
+                "original_index": 0,
+                "category": "Music",
+                "eng_title": "Headline in English",
+                "summary": "1-2 sentence English summary",
+                "reactions": {{"excitement": 70, "shock": 30, "sadness": 0}}
             }}
         ]
     }}
@@ -102,63 +122,61 @@ def ai_chief_editor(news_batch):
             response_format={"type": "json_object"}
         )
         return json.loads(res.choices[0].message.content)
-    except Exception as e:
-        print(f"❌ AI 분석 실패: {e}")
-        return None
+    except: return None
 
+# 6. 실행 프로세스
 def run():
-    print(f"=== {datetime.now()} 실전 모드 시작 ===")
-    all_news = []
-    for keyword in SEARCH_KEYWORDS:
-        items = get_naver_api_news(keyword)
-        print(f"📡 {keyword}: {len(items)}건 발견")
-        all_news.extend(items)
+    # 랜덤 휴식 효과 (1분 ~ 10분 사이 무작위 대기 후 시작)
+    wait_time = random.randint(60, 600)
+    print(f"🕒 보안을 위해 {wait_time}초 대기 후 시작합니다...")
+    time.sleep(wait_time)
+
+    print(f"=== {datetime.now()} 하이브리드 수집 모드 가동 ===")
     
-    print(f"🔍 총 {len(all_news)}건의 뉴스 수집됨. AI 분석 시작...")
+    # 1단계: 랭킹 수집
+    all_raw_news = get_naver_ranking_30()
     
-    result = ai_chief_editor(all_news)
-    if not result or 'articles' not in result:
-        print("❌ AI가 결과를 생성하지 못했습니다.")
-        return
+    # 2단계: 모자란 카테고리 보충 (음악, 영화, 드라마 등)
+    keywords = ["K-POP 신곡", "한국 영화 개봉", "한국 드라마 화제"]
+    for kw in keywords:
+        all_raw_news.extend(get_naver_api_news(kw))
+    
+    # 3단계: AI 분석
+    analysis = ai_chief_editor(all_raw_news)
+    if not analysis: return
 
-    print(f"📝 AI가 {len(result['articles'])}개의 뉴스를 선정했습니다. 이미지 추출 중...")
-
-    saved_count = 0
-    for article in result.get('articles', []):
-        idx = article.get('original_title_index', 1) - 1
-        if idx < 0 or idx >= len(all_news): idx = 0
-        original = all_news[idx]
-
-        real_img = get_real_news_image(original['link'])
+    # 4단계: 상세 내용 추출 및 DB 저장
+    saved = 0
+    for art in analysis.get('articles', []):
+        idx = art['original_index']
+        if idx >= len(all_raw_news): continue
         
-        if not real_img:
-            # 여전히 실패 시 보조 수단 (네이버 로고라도 안 나오게 하기 위해 가수명으로 생성)
-            real_img = f"https://placehold.co/600x400/111/cyan?text={article.get('artist', 'K-News').replace(' ', '+')}"
-        else:
-            print(f"📸 이미지 추출 성공: {article['title'][:20]}...")
+        item = all_raw_news[idx]
+        
+        # 중복 체크
+        if supabase.table("live_news").select("id").eq("link", item['link']).execute().data:
+            continue
+            
+        body, img = get_article_details(item['link'])
+        if not img: img = f"https://placehold.co/600x400/111/cyan?text={art['category']}"
 
         try:
-            # 중복 체크 (DB가 비어있다면 무조건 통과해야 함)
             data = {
-                "category": article.get('category', 'General'),
-                "artist": article.get('artist', 'Trend'),
-                "title": article['title'],
-                "summary": article['summary'],
-                "score": article.get('score', 5),
-                "link": original['link'],
-                "source": "Naver News",
-                "image_url": real_img,
-                "reactions": article['reactions'],
-                "is_published": True,
+                "category": art['category'], # 음악, 영화, 드라마, 연예 등
+                "title": art['eng_title'],
+                "summary": art['summary'],
+                "link": item['link'],
+                "image_url": img,
+                "reactions": art['reactions'],
+                "is_ranking": item.get('is_ranking', False),
                 "created_at": datetime.now().isoformat()
             }
             supabase.table("live_news").insert(data).execute()
-            saved_count += 1
-            print(f"✅ 저장됨: {article['title'][:30]}")
-        except Exception as e:
-            print(f"💾 저장 실패: {e}")
+            saved += 1
+            print(f"✅ 저장: {art['eng_title'][:30]}...")
+        except: pass
 
-    print(f"=== 최종 완료: {saved_count}개 업데이트됨 ===")
+    print(f"=== 작업 완료: {saved}개 뉴스 업데이트 ===")
 
 if __name__ == "__main__":
     run()
