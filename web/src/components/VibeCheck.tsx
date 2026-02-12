@@ -1,36 +1,40 @@
 'use client';
+import { Activity } from 'lucide-react';
+import { motion } from 'framer-motion';
 
-export default function VibeCheck({ data }: { data?: any }) {
-  // DB 스키마에 맞춰 'reactions' 필드에서 에너지를 추출합니다.
-  const vibe = data || { excitement: 33, shock: 33, sadness: 34 };
-
-  const bars = [
-    { label: "🤩 Excitement", val: vibe.excitement, color: "from-pink-500 to-purple-600" },
-    { label: "⚡ Shock / Buzz", val: vibe.shock, color: "from-yellow-400 to-orange-500" },
-    { label: "💧 Sadness / Serious", val: vibe.sadness, color: "from-cyan-400 to-blue-600" }
+export default function VibeCheck() {
+  // 실전에서는 DB의 reactions 데이터를 계산해서 넣습니다.
+  const stats = [
+    { label: 'Excitement', val: 75, color: 'bg-cyan-400', icon: '⚡' },
+    { label: 'Shock', val: 15, color: 'bg-yellow-400', icon: '⚠️' },
+    { label: 'Sadness', val: 10, color: 'bg-orange-400', icon: '😢' }
   ];
 
   return (
-    <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6 h-full flex flex-col justify-center">
-      <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-        🔮 AI Vibe Check <span className="text-xs text-gray-500 font-normal">(Sentiment Analysis)</span>
-      </h3>
+    <section className="bg-white rounded-[32px] p-8 border border-slate-100 shadow-sm">
+      <div className="flex items-center gap-2 mb-6">
+        <Activity size={18} className="text-cyan-500" />
+        <h3 className="font-black text-slate-800 uppercase tracking-wider text-sm">AI Vibe Check</h3>
+      </div>
       <div className="space-y-6">
-        {bars.map((bar) => (
-          <div key={bar.label}>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-gray-300 font-bold">{bar.label}</span>
-              <span className="text-white">{bar.val}%</span>
+        {stats.map(stat => (
+          <div key={stat.label}>
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                {stat.icon} {stat.label}
+              </span>
+              <span className="text-sm font-black text-slate-800">{stat.val}%</span>
             </div>
-            <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden shadow-inner">
-              <div 
-                className={`bg-gradient-to-r ${bar.color} h-full transition-all duration-1000`} 
-                style={{ width: `${bar.val}%` }}
-              ></div>
+            <div className="h-2.5 bg-slate-50 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }} 
+                animate={{ width: `${stat.val}%` }} 
+                className={`h-full ${stat.color}`} 
+              />
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
