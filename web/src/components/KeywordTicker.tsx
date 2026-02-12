@@ -1,46 +1,55 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase'; // 공용 인스턴스 사용
+import { supabase } from '@/lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, TrendingUp } from 'lucide-react';
+import { ChevronDown, TrendingUp, Hash } from 'lucide-react';
+
+// 데이터 타입 정의
+interface TrendItem {
+  id: number;
+  rank: number;
+  keyword: string;
+  count: number;
+}
 
 export default function KeywordTicker() {
-  const [keywords, setKeywords] = useState<string[]>([]);
+  const [trends, setTrends] = useState<TrendItem[]>([]);
   const [index, setIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchTrendingTitles = async () => {
-      // live_news 테이블에서 상위 10개 기사 제목만 가져옴
+    const fetchKeywords = async () => {
+      // [수정] live_news가 아니라 분석된 'trending_keywords' 테이블에서 가져옴
       const { data, error } = await supabase
-        .from('live_news')
-        .select('title')
+        .from('trending_keywords')
+        .select('*')
         .order('rank', { ascending: true })
         .limit(10);
 
       if (data && !error) {
-        // 제목 앞에 순위를 붙여서 저장
-        const formatted = data.map((item, i) => `${i + 1}. ${item.title}`);
-        setKeywords(formatted);
+        setTrends(data);
       }
       setLoading(false);
     };
 
-    fetchTrendingTitles();
+    fetchKeywords();
   }, []);
 
-  // 3초마다 순위 롤링
+  // 3초마다 롤링
   useEffect(() => {
-    if (isOpen || keywords.length === 0) return; 
+    if (isOpen || trends.length === 0) return; 
     const interval = setInterval(() => {
-      setIndex((prev) => (prev + 1) % keywords.length);
+      setIndex((prev) => (prev + 1) % trends.length);
     }, 3000);
     return () => clearInterval(interval);
-  }, [isOpen, keywords]);
+  }, [isOpen, trends]); // trends 의존성 확인
 
-  if (loading) return <div className="h-10 animate-pulse bg-slate-100 rounded-2xl mb-6" />;
+  if (loading) return <div className="h-12 animate-pulse bg-slate-100 rounded-2xl mb-6" />;
+
+  // 데이터가 없을 때 (아직 분석 전일 경우) 예외 처리
+  if (!loading && trends.length === 0) return null;
 
   return (
     <div className="w-full max-w-md mx-auto mb-6 relative z-[60]">
@@ -50,23 +59,27 @@ export default function KeywordTicker() {
         className="cursor-pointer bg-white border border-slate-100 shadow-sm rounded-2xl px-5 py-3 flex items-center justify-between transition-all hover:border-cyan-200 active:scale-[0.98]"
       >
         <div className="flex items-center gap-3 flex-1 overflow-hidden">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-cyan-50 rounded-lg">
-            <TrendingUp size={14} className="text-cyan-500" />
-            <span className="text-[10px] text-cyan-600 font-black uppercase tracking-tighter">Live</span>
+          {/* 라벨 디자인 약간 수정 */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg shadow-sm shadow-cyan-200">
+            <TrendingUp size={12} className="text-white" />
+            <span className="text-[10px] text-white font-black uppercase tracking-tight">Trends</span>
           </div>
           
-          <div className="flex-1 h-5 overflow-hidden relative">
+          <div className="flex-1 h-6 overflow-hidden relative flex items-center">
             <AnimatePresence mode="wait">
-              <motion.div 
-                key={index}
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -20, opacity: 0 }}
-                transition={{ duration: 0.5, ease: "circOut" }}
-                className="text-slate-700 font-bold text-sm absolute w-full truncate"
-              >
-                {keywords[index] || "Gathering news..."}
-              </motion.div>
+              {trends[index] && (
+                <motion.div 
+                  key={trends[index].id} // 고유 ID 사용
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -20, opacity: 0 }}
+                  transition={{ duration: 0.4, ease: "backOut" }}
+                  className="flex items-center gap-2 text-slate-700 font-bold text-sm absolute w-full"
+                >
+                  <span className="text-cyan-600 font-black tabular-nums">{trends[index].rank}.</span>
+                  <span className="truncate">{trends[index].keyword}</span>
+                </motion.div>
+              )}
             </AnimatePresence>
           </div>
         </div>
@@ -81,28 +94,43 @@ export default function KeywordTicker() {
       <AnimatePresence>
         {isOpen && (
           <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute top-14 left-0 w-full bg-white/95 backdrop-blur-xl border border-slate-100 rounded-3xl p-5 shadow-xl shadow-slate-200/50 flex flex-col gap-1"
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="absolute top-16 left-0 w-full bg-white/95 backdrop-blur-xl border border-slate-100 rounded-3xl p-4 shadow-xl shadow-slate-200/50 flex flex-col gap-1 overflow-hidden"
           >
-            <div className="text-[10px] font-black text-slate-400 mb-3 px-1 flex justify-between uppercase tracking-widest">
-              <span>Current Hot Topics</span>
-              <span className="text-cyan-500 font-bold">LIVE</span>
+            <div className="text-[10px] font-black text-slate-400 mb-2 px-2 flex justify-between uppercase tracking-widest">
+              <span>Real-time Keywords</span>
+              <span className="text-cyan-500 flex items-center gap-1">
+                <Hash size={10} /> Top 10
+              </span>
             </div>
             
             <div className="grid grid-cols-1 gap-1">
-              {keywords.map((keyword, idx) => (
+              {trends.map((item) => (
                 <div 
-                  key={idx} 
+                  key={item.id} 
                   className="group flex items-center justify-between p-2 rounded-xl hover:bg-cyan-50 transition-all cursor-pointer"
                 >
-                  <span className={`text-sm font-bold ${idx < 3 ? 'text-slate-800' : 'text-slate-500'} group-hover:text-cyan-600 truncate mr-2`}>
-                    {keyword}
-                  </span>
-                  {idx < 3 && (
-                    <span className="text-[10px] font-black text-orange-400 bg-orange-50 px-1.5 py-0.5 rounded-md flex-shrink-0">HOT</span>
-                  )}
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <span className={`text-sm font-black tabular-nums w-4 ${item.rank <= 3 ? 'text-cyan-500' : 'text-slate-300'}`}>
+                      {item.rank}
+                    </span>
+                    <span className="text-sm font-bold text-slate-700 group-hover:text-cyan-700 truncate">
+                      {item.keyword}
+                    </span>
+                  </div>
+                  
+                  {/* 언급 횟수 (Count) 표시 - 신뢰도 상승 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-medium text-slate-400 group-hover:text-cyan-500 transition-colors">
+                      {item.count} mentions
+                    </span>
+                    {item.rank <= 3 && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400 animate-pulse" />
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
