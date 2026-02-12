@@ -15,39 +15,41 @@ export default function Home() {
   const [selectedArticle, setSelectedArticle] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // 데이터 로드
   useEffect(() => { fetchNews(); }, []);
 
   const fetchNews = async () => {
     setLoading(true);
-    // DB에 200개가 있어도 우선 전체를 가져옵니다. (사이드바 통계 등을 위해)
-    const { data } = await supabase
+    // 사이드바의 통계와 전체 랭킹 분석을 위해 모든 기사(최대 200개)를 가져옵니다.
+    const { data, error } = await supabase
       .from('live_news')
       .select('*')
       .order('rank', { ascending: true });
     
-    if (data) setNews(data);
+    if (data && !error) {
+      setNews(data);
+    }
     setLoading(false);
   };
 
+  // 투표 로직
   const handleVote = async (id: string, type: 'likes' | 'dislikes') => {
-    // 실시간 투표 반영 (RPC)
     await supabase.rpc('increment_vote', { row_id: id, col_name: type });
     
-    // 로컬 상태 업데이트
+    // 리스트 상태 즉시 반영
     setNews(prev => prev.map(item => 
       item.id === id ? { ...item, [type]: item[type] + 1 } : item
     ));
 
-    // 선택된 상세 기사가 있을 경우 함께 업데이트
+    // 상세 팝업 상태 즉시 반영
     if (selectedArticle?.id === id) {
       setSelectedArticle((prev: any) => ({ ...prev, [type]: prev[type] + 1 }));
     }
   };
 
   /**
-   * [핵심 로직] 필터링 및 슬라이싱
-   * 1. 카테고리가 'All'이면 전체 뉴스에서 Top 30
-   * 2. 특정 카테고리면 해당 장르에서 Top 30
+   * [필터링 로직]
+   * 메인 피드에는 사용자가 선택한 카테고리의 상위 30개만 보여줍니다.
    */
   const filteredNews = (category === 'All' 
     ? news 
@@ -57,29 +59,29 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans overflow-x-hidden">
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* 상단부: K-Enter 24 로고 및 사용자 영역 */}
+        {/* 1. 헤더 (로고 & 로그인) */}
         <Header />
 
-        {/* 중단부: 카테고리 메뉴 & AI 인사이트 */}
+        {/* 2. 네비게이션 (K-Entertain 포함) */}
         <CategoryNav active={category} setCategory={setCategory} />
         
-        {/* 인사이트 배너는 전체 뉴스 중 1위의 인사이트를 보여줌 */}
+        {/* 3. AI 인사이트 배너 */}
         <InsightBanner insight={news[0]?.insight} />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* 메인 기사 영역: 필터링된 30개만 전달 */}
+          {/* 4. 메인 뉴스 피드 (Top 30) */}
           <NewsFeed 
             news={filteredNews} 
             loading={loading} 
             onOpen={setSelectedArticle} 
           />
 
-          {/* 사이드바 영역: 전체 뉴스를 기반으로 통계/랭킹 계산 */}
+          {/* 5. 사이드바 (여기에 키워드, 바이브, 투표가 모두 들어있어야 합니다) */}
           <Sidebar news={news} />
         </div>
       </div>
 
-      {/* 기사 상세 모달 */}
+      {/* 6. 기사 상세 모달 */}
       <ArticleModal 
         article={selectedArticle} 
         onClose={() => setSelectedArticle(null)} 
