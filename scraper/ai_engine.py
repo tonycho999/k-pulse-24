@@ -51,11 +51,25 @@ def ai_category_editor(category, news_batch):
         clean_desc = n['description'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
         raw_text += f"[{i}] Title: {n['title']} / Link: {n['link']} / Context: {clean_desc}\n"
     
-    # 카테고리별 점수 정책
+    # [수정] 카테고리별 점수 정책 차등 적용 (이원화 전략)
     if category == 'k-culture':
-        score_instruction = "IMPORTANT: 'K-Culture' (Food, Fashion) max score is 7.5. Only give > 8.0 for massive global events."
+        # [전략 1] 마이너 카테고리: 기사량 확보를 위해 '후한 점수' (Generous)
+        score_instruction = """
+        This is 'K-Culture' (Food, Fashion, Travel). Since news volume is typically low:
+        - Be GENEROUS with scoring.
+        - If the article is relevant to Korea, give at least 6.0.
+        - If it's interesting or informative, give 7.5~8.5.
+        - Only give < 5.0 if it is completely irrelevant or spam.
+        """
     else:
-        score_instruction = "MAIN Entertainment news. Give high scores (8.0~10.0) for popular Idols/Actors."
+        # [전략 2] 메인 카테고리: 퀄리티 확보를 위해 '엄격한 기준' (Strict/Objective)
+        score_instruction = """
+        This is MAIN Entertainment news (K-Pop, Drama, Actors). Volume is high:
+        - Be STRICT/OBJECTIVE with scoring.
+        - Standard/Routine news (e.g., simple schedule updates) -> 5.0~6.5
+        - Good news (e.g., new release, casting) -> 7.0~8.5
+        - HUGE Breaking news (e.g., global awards, dating reveal) -> 9.0~10.0
+        """
 
     prompt = f"""
     Task: Select the best 30 news items for '{category}'.
