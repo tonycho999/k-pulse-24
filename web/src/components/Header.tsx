@@ -34,9 +34,11 @@ export default function Header() {
   };
 
   return (
-    <header className="flex justify-between items-center mb-6 py-3">
-      {/* 로고 영역: 배경색과 테두리를 제거하여 투명하게 수정 */}
+    // [수정] py-3 -> py-2로 줄임
+    <header className="flex justify-between items-center mb-6 py-2">
+      {/* 로고 영역 */}
       <div className="flex items-center gap-3 group cursor-pointer">
+        {/* [수정] 크기를 기존 160x100에서 80% 수준인 128x80으로 변경 */}
         <div className="w-[160px] h-[100px] bg-transparent flex items-center justify-center transition-all overflow-hidden">
           <img 
             src="/logo.png" 
@@ -95,7 +97,8 @@ export default function Header() {
         ) : (
           <button 
             onClick={handleLogin}
-            className="px-6 py-2.5 text-sm font-black text-white bg-slate-900 rounded-full hover:bg-cyan-500 hover:shadow-lg hover:shadow-cyan-100 transition-all active:scale-95"
+            // [수정] 버튼 높이도 살짝 줄임 (py-2.5 -> py-2)
+            className="px-6 py-2 text-sm font-black text-white bg-slate-900 rounded-full hover:bg-cyan-500 hover:shadow-lg hover:shadow-cyan-100 transition-all active:scale-95"
           >
             Sign In
           </button>
