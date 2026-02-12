@@ -5,6 +5,8 @@ import time
 import requests
 from supabase import create_client, Client
 from datetime import datetime, timedelta
+# [수정] 날짜 파싱 오류 해결을 위해 추가
+from dateutil.parser import isoparse 
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -51,11 +53,9 @@ def ai_category_editor(category, news_batch):
     raw_text = "\n".join([f"[{i}] {n['title']}" for i, n in enumerate(limited_batch)])
     
     prompt = f"""
-    Task: Select buzzworthy news for '{category}'. 
-    - Select EXACTLY 30 items if possible.
-    - Rank 1-30. 
-    - Translate title to English & 3-line English summary. 
-    - AI Score (0.0-10.0).
+    Task: Select exactly 30 news items for '{category}'. If not enough, select as many as possible.
+    Constraints: Rank 1-30, English translation, 3-line summary, AI Score (0.0-10.0).
+    List: {raw_text}
     Output JSON: {{ "articles": [ {{ "original_index": 0, "rank": 1, "category": "{category}", "eng_title": "...", "summary": "...", "score": 9.5 }} ] }}
     """
     
@@ -71,23 +71,18 @@ def ai_category_editor(category, news_batch):
     return []
 
 def run():
-    print("🚀 7단계 마스터 엔진 가동 (안정적 30개 유지 모드)...")
+    print("🚀 7단계 마스터 엔진 가동 (안전한 30개 유지 로직)...")
     
     for category, keywords in CATEGORY_MAP.items():
         print(f"📂 {category.upper()} 부문 처리 중...")
 
-        # 1. 수집 (Maximum Fetch)
+        # 1~2. 수집 및 중복 제거
         raw_news = []
         for kw in keywords: raw_news.extend(get_naver_api_news(kw))
         
-        # 2. DB와 비교하여 중복 기사 제거 (Dedupe vs DB)
-        # 현재 DB에 있는 모든 링크를 가져와서 비교
         db_res = supabase.table("live_news").select("link").eq("category", category).execute()
         db_links = {item['link'] for item in db_res.data}
-        
-        # DB에 없는 새로운 기사만 필터링
         new_candidate_news = [n for n in raw_news if n['link'] not in db_links]
-        # 리스트 내 자체 중복도 제거
         new_candidate_news = list({n['link']: n for n in new_candidate_news}.values())
         
         print(f"   🔎 수집: {len(raw_news)}개 -> 신규 기사: {len(new_candidate_news)}개")
@@ -95,10 +90,9 @@ def run():
         # 3. 분류 및 평점 (AI Scoring)
         selected = ai_category_editor(category, new_candidate_news)
         num_new = len(selected)
-        print(f"   ㄴ AI 선별 완료: {num_new}개")
-
+        
         if num_new > 0:
-            # 7. 새로운 기사 먼저 저장 (Final Upsert)
+            # 7. 신규 기사 삽입 (Upsert로 중복 에러 방지)
             new_data_list = []
             for art in selected:
                 idx = art['original_index']
@@ -116,51 +110,46 @@ def run():
                 supabase.table("live_news").upsert(new_data_list, on_conflict="link").execute()
                 print(f"   ✅ 신규 {len(new_data_list)}개 삽입 완료.")
 
-        # 4~6. 슬롯 체크 및 조건부 삭제
-        # 삽입 후 전체 개수를 확인하여 30개로 맞춤
+        # 4~6. 슬롯 체크 및 조건부 삭제 (최소 30개 보장)
         res = supabase.table("live_news").select("id", "created_at", "score").eq("category", category).execute()
         current_articles = res.data
+        current_count = len(current_articles)
         
-        if len(current_articles) > 30:
+        if current_count > 30:
             now = datetime.now()
             threshold = now - timedelta(hours=24)
             
-            # 기사 분리: 24시간 지난 것 / 최신 것
+            # [수정된 파싱 로직] isoparse를 사용하여 마이크로초 자릿수 문제 해결
             old_articles = []
             fresh_articles = []
             for a in current_articles:
-                created_at = datetime.fromisoformat(a['created_at'].replace('Z', '+00:00')).replace(tzinfo=None)
-                if created_at < threshold: old_articles.append(a)
+                # isoparse는 .79472 같은 5자리 마이크로초도 완벽하게 읽습니다.
+                dt_obj = isoparse(a['created_at']).replace(tzinfo=None)
+                if dt_obj < threshold: old_articles.append(a)
                 else: fresh_articles.append(a)
             
-            # 5. 24시간 넘은 기사 삭제 (30개 될 때까지만)
-            # 오래된 순으로 정렬
-            old_articles.sort(key=lambda x: x['created_at'])
-            
             delete_ids = []
-            current_count = len(current_articles)
             
+            # 5. 24시간 넘은 기사 삭제 (30개 될 때까지만)
+            old_articles.sort(key=lambda x: x['created_at'])
             for oa in old_articles:
                 if current_count <= 30: break
                 delete_ids.append(oa['id'])
                 current_count -= 1
             
-            # 6. 그래도 30개 넘으면 점수 낮은 순으로 삭제
+            # 6. 그래도 30개 넘으면 점수 낮은 순 삭제
             if current_count > 30:
-                # 남은 기사들 중 점수 낮은 순 정렬
-                remaining = [a for a in current_articles if a['id'] not in delete_ids]
-                remaining.sort(key=lambda x: x['score'])
-                
-                for ra in remaining:
+                fresh_articles.sort(key=lambda x: x['score'])
+                for fa in fresh_articles:
                     if current_count <= 30: break
-                    delete_ids.append(ra['id'])
+                    delete_ids.append(fa['id'])
                     current_count -= 1
 
             if delete_ids:
                 supabase.table("live_news").delete().in_("id", delete_ids).execute()
                 print(f"   🧹 슬롯 조정: {len(delete_ids)}개 삭제 완료 (최종 30개 유지)")
 
-    print(f"🎉 작업 완료. 각 카테고리 30개 슬롯 최적화.")
+    print(f"🎉 작업 완료.")
 
 if __name__ == "__main__":
     run()
