@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase'; // 1. 공용 인스턴스 사용 (createClient 제거)
+import { supabase } from '@/lib/supabase';
 import { User, LogOut, Settings, ChevronDown, ShieldCheck } from 'lucide-react';
 
 export default function Header() {
@@ -35,25 +35,24 @@ export default function Header() {
 
   return (
     <header className="flex justify-between items-center mb-8 py-4">
-      {/* 2. 로고 영역: logo.png 적용 및 디자인 변경 */}
+      {/* 로고 영역: K-ENTER 24 로고 및 명칭 */}
       <div className="flex items-center gap-3 group cursor-pointer">
-        <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all">
-          <img src="/logo.png" alt="K-ENTER 24 Logo" className="w-8 h-8 object-contain" />
+        <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all overflow-hidden">
+          {/* 로고 이미지가 안 보인다면 아래 체크리스트를 확인해 주세요 */}
+          <img 
+            src="/logo.png" 
+            alt="K-ENTER 24 Logo" 
+            className="w-full h-full object-contain" 
+          />
         </div>
-        <div className="flex flex-col">
-          <h1 className="text-xl font-black tracking-tighter text-slate-900 leading-none">
-            K-ENTER <span className="text-cyan-500">24</span>
-          </h1>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-            AI Curation Service
-          </span>
-        </div>
+        <h1 className="text-2xl font-black tracking-tighter text-slate-900 leading-none">
+          K-ENTER <span className="text-cyan-500">24</span>
+        </h1>
       </div>
 
       <div className="flex items-center gap-4 relative">
         {user ? (
           <div className="relative">
-            {/* 로그인 상태: web2.jpg 스타일의 사용자 버튼 */}
             <button 
               onClick={() => setMenuOpen(!menuOpen)}
               className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-100 rounded-full hover:border-cyan-200 hover:shadow-sm transition-all group"
@@ -71,7 +70,6 @@ export default function Header() {
               <ChevronDown size={14} className={`text-slate-300 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            {/* 드롭다운 메뉴: 라이트 테마 & 부드러운 그림자 */}
             {menuOpen && (
               <div className="absolute right-0 mt-3 w-56 bg-white border border-slate-100 rounded-[24px] shadow-xl shadow-slate-200/50 overflow-hidden z-[100] p-2">
                 <div className="px-4 py-3 bg-slate-50 rounded-2xl mb-1">
@@ -99,7 +97,6 @@ export default function Header() {
             )}
           </div>
         ) : (
-          /* 비로그인 상태: web2.jpg 스타일의 로그인 버튼 */
           <button 
             onClick={handleLogin}
             className="px-6 py-2.5 text-sm font-black text-white bg-slate-900 rounded-full hover:bg-cyan-500 hover:shadow-lg hover:shadow-cyan-100 transition-all active:scale-95"
