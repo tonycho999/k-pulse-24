@@ -24,7 +24,7 @@ def get_best_model():
 
             if "70b" in model_id: score += 50
             elif "8b" in model_id: score += 10
-            if "versatile" in model_id: score += 3.5
+            if "versatile" in model_id: score += 5
             return score
 
         available_models.sort(key=model_scorer, reverse=True)
@@ -37,7 +37,7 @@ def get_best_model():
 MODELS_TO_TRY = get_best_model()
 
 def ai_category_editor(category, news_batch):
-    """뉴스 기사 선별 및 요약 (30개 목표, 20~40% 길이)"""
+    """뉴스 기사 선별 및 요약"""
     if not news_batch: return []
     limited_batch = news_batch[:50]
     
@@ -46,17 +46,23 @@ def ai_category_editor(category, news_batch):
         clean_desc = n['description'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
         raw_text += f"[{i}] Title: {n['title']} / Context: {clean_desc}\n"
     
+    # [수정] 카테고리별 점수 정책 차등 적용
+    if category == 'k-culture':
+        score_instruction = "IMPORTANT: This is 'K-Culture' (Food, Fashion). It is LESS important than K-Pop/Drama. Max score is 7.0 usually. Only give > 8.0 if it's a huge global event."
+    else:
+        score_instruction = "This is MAIN Entertainment news. Give high scores (8.0~10.0) for popular Idols/Actors."
+
     prompt = f"""
     Task: Select highly relevant news items for '{category}'. 
-    Target Quantity: Try to select up to 30 items if they are relevant.
+    Target Quantity: Select up to 30 items.
     
     Constraints: 
     1. English Title: Translate naturally.
     2. English Summary: 
-       - Write a DETAILED narrative summary (approx. 20-40% length of a typical article).
-       - DO NOT use bullet points. Write 5-8 sentences in a cohesive paragraph.
-       - Include Who, When, Where, Why based on the context.
-    3. AI Score (0.0-10.0): Judge based on importance and trendiness.
+       - Write a DETAILED narrative summary (20-40% length).
+       - NO bullet points. 5-8 sentences cohesive paragraph.
+    3. AI Score (0.0-10.0): 
+       - {score_instruction}
     4. Return JSON format strictly.
 
     News List:
@@ -65,7 +71,7 @@ def ai_category_editor(category, news_batch):
     Output JSON Format:
     {{
         "articles": [
-            {{ "original_index": 0, "eng_title": "...", "summary": "Detailed summary...", "score": 8.5 }}
+            {{ "original_index": 0, "eng_title": "...", "summary": "...", "score": 8.5 }}
         ]
     }}
     """
@@ -91,10 +97,10 @@ def ai_analyze_keywords(titles):
     prompt = f"""
     Analyze the following K-Entertainment news titles and identify the TOP 10 most trending keywords.
     [Rules]
-    1. Extract specific Entities: Person Name (e.g., "Lee Min-ho", NOT "Lee"), Group Name (e.g., "BTS"), Drama/Movie Title (e.g., "Squid Game").
-    2. Merge related concepts: If "Jin" and "BTS" are both popular, use "BTS Jin".
-    3. EXCLUDE generic words: Do NOT use words like "Variety", "Actor", "K-pop", "Review", "Netizens", "Update", "Official", "Comeback", "Teaser".
-    4. Return JSON format with 'keyword' and estimated 'count' (importance score 1-100).
+    1. Extract specific Entities: Person Name, Group Name, Drama/Movie Title.
+    2. Merge related concepts: "BTS Jin" instead of "Jin".
+    3. EXCLUDE generic words: Variety, Actor, K-pop, Review, Netizens, Update, Official.
+    4. Return JSON format with 'keyword' and estimated 'count' (1-100).
     [Titles]
     {titles_text}
     [Output Format JSON]
