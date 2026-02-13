@@ -16,14 +16,18 @@ export default function Header() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
     
-    if (localStorage.getItem('theme') === 'dark' || 
-        (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    // 다크모드 초기화
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
       setIsDark(true);
       document.documentElement.classList.add('dark');
     }
 
+    // 브라우저 언어 감지
     const browserLang = navigator.language.split('-')[0].toUpperCase();
-    setLangCode(browserLang === 'KO' ? 'EN' : browserLang);
+    setLangCode(browserLang); // KO, EN 등 실제 코드 유지
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
@@ -32,19 +36,22 @@ export default function Header() {
   }, []);
 
   const toggleDarkMode = () => {
-    if (isDark) {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    } else {
+    const newDark = !isDark;
+    setIsDark(newDark);
+    if (newDark) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
     }
-    setIsDark(!isDark);
   };
 
   const handleAiTranslate = () => {
-    if (langCode === 'EN') return; 
+    // EN일 때도 작동하게 하거나 사용자에게 알림을 줍니다.
+    console.log("Translation requested for:", langCode);
     window.dispatchEvent(new CustomEvent('ai-translate', { detail: langCode }));
+    alert(`AI Translation to [${langCode}] started!`); // 동작 확인용
   };
 
   const handleLogin = async () => {
@@ -60,14 +67,13 @@ export default function Header() {
   };
 
   return (
-    <header className="flex justify-between items-center mb-6 py-2 border-b border-slate-100 dark:border-slate-800 transition-colors">
-      {/* 좌측: 로고 & 실시간 상태 */}
+    // mb-6을 mb-2로 수정하여 하단 banner와의 간격을 줄임
+    <header className="flex justify-between items-center mb-2 py-2 border-b border-slate-100 dark:border-slate-800 transition-colors">
       <div className="flex items-center gap-2 sm:gap-4">
-        <div className="w-[150px] sm:w-[160px] h-[90px] sm:h-[100px] flex items-center justify-center overflow-hidden">
+        <div className="w-[120px] sm:w-[140px] h-[60px] flex items-center justify-center overflow-hidden">
           <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
         </div>
         
-        {/* Live 상태 표시 (모바일에서도 보이도록 flex 조정) */}
         <div className="flex flex-col ml-1 sm:ml-2 border-l border-slate-200 dark:border-slate-700 pl-2 sm:pl-3">
              <div className="flex items-center gap-1.5">
                 <span className="relative flex h-2 w-2">
@@ -76,51 +82,50 @@ export default function Header() {
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-black text-cyan-500 uppercase tracking-tighter">Live</span>
              </div>
-             <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 leading-none mt-0.5 whitespace-nowrap">
-               1,240 Articles Today
+             <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 leading-none mt-0.5 whitespace-nowrap uppercase">
+               1,240 Monitoring
              </span>
         </div>
       </div>
 
-      {/* 우측: 버튼 그룹 */}
       <div className="flex items-center gap-2 relative">
-        <button onClick={toggleDarkMode} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400">
-          {isDark ? <Sun size={18} /> : <Moon size={18} />}
+        {/* 다크모드 토글 버튼 */}
+        <button 
+          onClick={(e) => { e.preventDefault(); toggleDarkMode(); }} 
+          className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"
+        >
+          {isDark ? <Sun size={20} className="text-yellow-500" /> : <Moon size={20} />}
         </button>
 
-        {/* 언어 설정 버튼 (항상 보임) */}
+        {/* 언어 설정 버튼 */}
         <button 
-          onClick={handleAiTranslate}
-          className="px-2 sm:px-3 py-1.5 bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 rounded-full flex items-center gap-1.5 border border-cyan-100 dark:border-cyan-800 transition-all active:scale-95"
-          title={`Translate to ${langCode}`}
+          onClick={(e) => { e.preventDefault(); handleAiTranslate(); }}
+          className="px-3 py-1.5 bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 rounded-full flex items-center gap-2 border border-cyan-100 dark:border-cyan-800 transition-all hover:scale-105 active:scale-95"
         >
-          <Languages size={16} />
-          <span className="text-[10px] sm:text-[11px] font-black uppercase">{langCode}</span>
+          <Languages size={18} />
+          <span className="text-[11px] font-black uppercase">{langCode}</span>
         </button>
 
         <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block" />
 
         {user ? (
           <div className="relative">
-            <button onClick={() => setMenuOpen(!menuOpen)} className="flex items-center gap-2 px-2 sm:px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-full">
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-slate-100 overflow-hidden">
+            <button onClick={() => setMenuOpen(!menuOpen)} className="flex items-center gap-2 px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-full shadow-sm">
+              <div className="w-7 h-7 rounded-full bg-slate-100 overflow-hidden">
                 {user.user_metadata?.avatar_url ? <img src={user.user_metadata.avatar_url} alt="profile" /> : <User size={16} />}
               </div>
-              <span className="hidden sm:inline text-xs font-bold text-slate-700 dark:text-slate-300 truncate max-w-[80px]">
-                {user.email?.split('@')[0]}
-              </span>
-              <ChevronDown size={14} />
+              <ChevronDown size={14} className="text-slate-400" />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 mt-3 w-48 sm:w-56 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[24px] shadow-xl z-[100] p-2">
-                <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl">
+              <div className="absolute right-0 mt-3 w-56 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[24px] shadow-xl z-[100] p-2">
+                <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl">
                   <LogOut size={18} /> Log Out
                 </button>
               </div>
             )}
           </div>
         ) : (
-          <button onClick={handleLogin} className="px-4 sm:px-6 py-2 text-xs sm:text-sm font-black text-white bg-slate-900 dark:bg-cyan-600 rounded-full hover:bg-cyan-500 transition-all shadow-lg shadow-cyan-900/20 whitespace-nowrap">
+          <button onClick={handleLogin} className="px-5 py-2 text-sm font-black text-white bg-slate-900 dark:bg-cyan-600 rounded-full hover:shadow-lg transition-all">
             Sign In
           </button>
         )}
