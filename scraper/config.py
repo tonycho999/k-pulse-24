@@ -31,28 +31,15 @@ if GROQ_API_KEY:
     except:
         pass
 
-# [1. 검색 키워드 설정 (기존 방식)]
-CATEGORY_MAP = {
+# [1. 씨앗 키워드 설정 (Seed Keywords)]
+# 네이버 뉴스에서 '원석'을 캐기 위한 광범위한 키워드
+CATEGORY_SEEDS = {
     "k-pop": ["컴백", "빌보드", "아이돌", "뮤직", "비디오", "챌린지", "포토카드", "월드투어", "가수"],
     "k-drama": ["드라마", "시청률", "넷플릭스", "OTT", "배우", "캐스팅", "대본리딩", "종영"],
     "k-movie": ["영화", "개봉", "박스오피스", "시사회", "영화제", "관객", "무대인사"],
     "k-entertain": ["예능", "유튜브", "개그맨", "코미디언", "방송", "개그우먼"],
-    "k-culture": ["푸드", "뷰티", "웹툰", "팝업스토어", "패션", "음식", "해외반응"]
+    "k-culture": ["푸드", "뷰티", "웹툰", "팝업스토어", "패션", "음식", "해외반응", "관광지", "축제"]
 }
 
-# [2. AI 분류 가이드 (New)]
-# 구글 트렌드 키워드가 들어왔을 때, AI가 카테고리를 판단하는 기준
-CATEGORIES = {
-    "k-pop": "K-Pop idols, music releases, concerts, and fandom news.",
-    "k-drama": "Korean TV dramas, webtoons-based series, and actors.",
-    "k-movie": "Korean films, box office hits, and movie stars.",
-    "k-entertain": "Variety shows, comedians, and general celebrity news.",
-    "k-culture": "K-Food, K-Fashion, and global Korean cultural trends."
-}
-
-# [3. 수집 제외 키워드 (New)]
-# 스포츠, 정치 등 노이즈 제거용
-EXCLUDE_KEYWORDS = [
-    '스포츠', '메달', '올림픽', '월드컵', '경기 결과', '득점', '선수',
-    '정치', '국회', '검찰', '주식', '코인', '경제 지표', '사건사고'
-]
+# [2. 설정 상수]
+TOP_RANK_LIMIT = 30  # 카테고리당 30위까지 선정
