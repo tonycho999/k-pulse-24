@@ -38,6 +38,17 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // [추가] 헤더 검색창에서 기사 클릭 시 모달 열기
+  useEffect(() => {
+    const handleSearchModalOpen = (e: any) => {
+      if (e.detail) {
+        setSelectedArticle(e.detail);
+      }
+    };
+    window.addEventListener('open-news-modal', handleSearchModalOpen);
+    return () => window.removeEventListener('open-news-modal', handleSearchModalOpen);
+  }, []);
+
   const fetchNews = async () => {
     setLoading(true);
     const { data, error } = await supabase
