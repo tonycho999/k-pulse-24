@@ -4,25 +4,22 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import KeywordTicker from './KeywordTicker';
 import VibeCheck from './VibeCheck';
-import RankingItem from './RankingItem'; // 방금 만든 부품 가져오기
+import RankingItem from './RankingItem';
 import { Trophy, Flame, Music, Film, Tv, MapPin } from 'lucide-react';
 
 interface SidebarProps {
   news: any[];
-  category: string; // [추가] 카테고리를 받음
+  category: string;
 }
 
 export default function Sidebar({ news, category }: SidebarProps) {
   const [rankings, setRankings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 카테고리가 바뀔 때마다 DB에서 순위 데이터 가져오기
   useEffect(() => {
     const fetchRankings = async () => {
-      // 'All'일 때는 기본적으로 K-Pop이나 통합 랭킹을 보여줌 (여기선 K-Pop 예시)
       const targetCategory = category === 'All' ? 'K-Pop' : category;
       
-      // DB에 데이터가 아직 없을 수 있으므로 예외처리
       if (!['K-Pop', 'K-Drama', 'K-Movie', 'K-Entertain', 'K-Culture'].includes(targetCategory)) {
           setRankings([]); 
           return;
@@ -32,14 +29,14 @@ export default function Sidebar({ news, category }: SidebarProps) {
       const { data, error } = await supabase
         .from('trending_rankings')
         .select('*')
-        .eq('category', targetCategory) // 카테고리에 맞는 데이터만!
+        .eq('category', targetCategory)
         .order('rank', { ascending: true })
         .limit(5);
 
       if (!error && data) {
         setRankings(data);
       } else {
-        setRankings([]); // 에러나면 빈 배열
+        setRankings([]);
       }
       setLoading(false);
     };
@@ -47,7 +44,6 @@ export default function Sidebar({ news, category }: SidebarProps) {
     fetchRankings();
   }, [category]);
 
-  // 카테고리별 제목 및 아이콘 설정
   const getHeaderInfo = () => {
     switch (category) {
       case 'K-Pop': return { title: 'Daily Music Chart', icon: <Music size={18} /> };
@@ -55,21 +51,17 @@ export default function Sidebar({ news, category }: SidebarProps) {
       case 'K-Movie': return { title: 'Box Office Ranking', icon: <Film size={18} /> };
       case 'K-Entertain': return { title: 'Variety Show Buzz', icon: <Flame size={18} /> };
       case 'K-Culture': return { title: "What's Hot in Korea?", icon: <MapPin size={18} /> };
-      default: return { title: 'Top Voted News', icon: <Trophy size={18} /> }; // All일 때
+      default: return { title: 'Top Voted News', icon: <Trophy size={18} /> };
     }
   };
 
   const headerInfo = getHeaderInfo();
-
-  // 기존 'Top Voted News' 로직 (All 카테고리일 때만 보여주거나, 항상 아래에 보여줌)
   const topLiked = [...news].sort((a, b) => (b.likes || 0) - (a.likes || 0)).slice(0, 3);
 
   return (
     <aside className="lg:col-span-4 space-y-6">
-      <KeywordTicker />
-      <VibeCheck />
       
-      {/* 1. 카테고리별 맞춤 랭킹 섹션 */}
+      {/* [위치 변경] 1. 카테고리 랭킹 섹션을 맨 위로 올림! */}
       {category !== 'All' && (
         <section className="bg-white dark:bg-slate-900 rounded-[32px] p-6 border border-slate-100 dark:border-slate-800 shadow-sm animate-in fade-in slide-in-from-right-4 duration-500">
           <div className="flex items-center gap-2 mb-4 text-cyan-600 dark:text-cyan-400 border-b border-slate-50 dark:border-slate-800 pb-3">
@@ -95,7 +87,13 @@ export default function Sidebar({ news, category }: SidebarProps) {
         </section>
       )}
 
-      {/* 2. (공통) 뉴스 투표 순위 (항상 표시하거나 All일 때 표시) */}
+      {/* 2. Hot Keywords (이제 두 번째로 내려옴) */}
+      <KeywordTicker />
+
+      {/* 3. AI Vibe Check */}
+      <VibeCheck />
+      
+      {/* 4. Top Voted News */}
       <section className="bg-white dark:bg-slate-900 rounded-[32px] p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
         <div className="flex items-center gap-2 mb-6 text-cyan-500">
           <Trophy size={18} className="fill-current" />
