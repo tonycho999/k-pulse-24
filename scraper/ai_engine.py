@@ -4,7 +4,7 @@ import time
 import re
 import requests
 from groq import Groq
-from scraper.config import CATEGORIES, EXCLUDE_KEYWORDS
+from scraper.config import CATEGORY_SEEDS # config 변경사항 반영
 
 # =========================================================
 # 1. [핵심] 지능형 모델 필터링 (Text Generation Only)
@@ -182,7 +182,6 @@ def parse_json_result(text):
     
     # 3. 정규표현식으로 [ ... ] 또는 { ... } 패턴 강제 추출 (가장 강력)
     try:
-        # 대괄호(리스트)나 중괄호(객체)로 시작하고 끝나는 부분을 찾음
         match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
         if match:
             return json.loads(match.group(0))
@@ -191,55 +190,50 @@ def parse_json_result(text):
     return []
 
 # =========================================================
-# 4. 외부 호출 인터페이스
+# 4. 외부 호출 인터페이스 (기존 로직 유지 및 신규 추가)
 # =========================================================
 
-def ai_filter_and_rank_keywords(raw_keywords):
-    system_prompt = f"""
-    You are the Chief Editor of 'K-Enter24'. 
-    Filter keywords for: {json.dumps(CATEGORIES, indent=2)}.
-    Exclude: {', '.join(EXCLUDE_KEYWORDS)}.
-    Return JSON object ONLY: {{"k-pop": ["keyword1"], ...}}
+def extract_top_entities(category, news_titles):
     """
-    # 리스트를 JSON 문자열로 변환해서 전달
-    raw_result = ask_ai_master(system_prompt, json.dumps(raw_keywords, ensure_ascii=False))
+    [New] 제목 뭉치에서 가수, 배우, 작품명 등 고유명사만 추출하여 랭킹 선정
+    """
+    system_prompt = f"""
+    You are a Trend Analyst for '{category}'. 
+    Extract the most mentioned entities (Singers, Actors, Titles, Brands, Places) from the provided news titles.
+    Rules:
+    1. Identify specific names (e.g., "BTS", "Kim Soo-hyun", "Squid Game 2").
+    2. Rank them by frequency of appearance.
+    3. Return a JSON ARRAY of strings only. Maximum 30 items.
+    4. Translate Korean names to English if possible, or keep Korean.
+    Example Output: ["NewJeans", "IU", "Hype Boy", "G-Dragon"]
+    """
+    
+    # 제목들을 하나의 텍스트로 결합 (너무 길면 자름)
+    user_input = "\n".join(news_titles)[:10000]
+    raw_result = ask_ai_master(system_prompt, user_input)
     
     parsed = parse_json_result(raw_result)
-    return parsed if isinstance(parsed, dict) else {}
+    return parsed if isinstance(parsed, list) else []
 
-def ai_category_editor(category, news_list):
+def synthesize_briefing(keyword, news_contents):
+    """
+    [New] 특정 키워드에 대한 여러 기사 내용을 하나로 합쳐 브리핑 생성
+    """
     system_prompt = f"""
-    You are an expert K-Content News Editor for '{category}'.
-    Summarize these articles.
+    You are a Professional News Briefing Editor. 
+    Topic: {keyword}
     
-    [OUTPUT FORMAT]
-    Return a VALID JSON ARRAY strictly like this:
-    [
-        {{
-            "original_index": 0,
-            "eng_title": "Translated Title",
-            "summary": "Context... Development... Impact...",
-            "score": 8.5
-        }}
-    ]
+    Task:
+    Summarize the provided news snippets into a 5-10 line cohesive briefing in English.
+    Focus on: What is happening, Why it is trending, and Public reaction.
+    
+    [Format]
+    - Style: Professional, Engaging, Journalistic
+    - Length: 5 to 10 lines
+    - Output: Plain text only (No Markdown, No JSON)
     """
     
-    input_data = []
-    # AI 입력 토큰 제한을 위해 기사 본문 길이 조절 (최대 1000자)
-    for i, n in enumerate(news_list):
-        input_data.append({
-            "index": i, 
-            "title": n['title'], 
-            "body": n.get('full_content', '')[:1000]
-        })
-
-    raw_result = ask_ai_master(system_prompt, json.dumps(input_data, ensure_ascii=False))
-    
-    parsed_list = parse_json_result(raw_result)
-    
-    if parsed_list and isinstance(parsed_list, list):
-        print(f"      ✅ AI 분석 성공: {len(parsed_list)}개 생성")
-        return parsed_list
-    else:
-        # print("      ❌ AI 응답 파싱 실패")
-        return []
+    # 내용 결합 (토큰 제한 고려)
+    user_input = "\n\n".join(news_contents)[:4000] 
+    briefing = ask_ai_master(system_prompt, user_input)
+    return briefing
