@@ -3,7 +3,6 @@ name: K-Enter 24 Auto Scraper
 on:
   schedule:
     # 0분(정각)을 피해 23분과 53분에 실행되도록 설정 (약 30분 간격)
-    # GitHub 서버 부하를 피해서 훨씬 안정적으로 작동합니다.
     - cron: '23,53 * * * *'
   workflow_dispatch: # 수동 실행 버튼 유지
 
@@ -12,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # 최신 버전으로 업데이트
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5 # 최신 버전으로 업데이트
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
@@ -25,10 +24,18 @@ jobs:
 
       - name: Run Scraper
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          # 👇 [수정] 파이썬이 찾는 이름(왼쪽)으로 맞춰주어야 합니다!
+          # (GitHub Secrets 이름(오른쪽)은 그대로 두셔도 됩니다)
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          
+          # AI 및 네이버 키
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          
+          # 혹시 Python 코드가 OPENAI_API_KEY를 쓴다면 아래 주석을 풀고 추가하세요
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
         # 메인 코드 실행
         run: python scraper/main.py
