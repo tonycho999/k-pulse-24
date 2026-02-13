@@ -25,26 +25,29 @@ function AuthContent() {
       }
 
       // B. URL에 'access_token'이 있는지 확인 (Implicit 방식 - 구형)
-      // window 객체는 클라이언트 사이드에서만 안전하게 접근
       if (typeof window !== 'undefined') {
         const hash = window.location.hash;
         if (hash && hash.includes('access_token')) {
           setStatus('Verifying token...');
+          // access_token은 supabase가 자동으로 감지하여 세션을 맺습니다.
         }
       }
 
       // C. 세션 최종 확인
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        router.push('/');
-      } else {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-          if (event === 'SIGNED_IN' || session) {
+      // 잠시 대기 후 세션 확인 (토큰 처리 시간 확보)
+      setTimeout(async () => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
             router.push('/');
+          } else {
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+              if (event === 'SIGNED_IN' || session) {
+                router.push('/');
+              }
+            });
+            return () => subscription.unsubscribe();
           }
-        });
-        return () => subscription.unsubscribe();
-      }
+      }, 500);
     };
 
     handleAuth();
@@ -58,7 +61,7 @@ function AuthContent() {
   );
 }
 
-// 2. 메인 페이지 컴포넌트 (Suspense로 감싸기 필수)
+// 2. 메인 페이지 컴포넌트 (Suspense로 감싸서 빌드 에러 방지)
 export default function AuthCallback() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-slate-950">
