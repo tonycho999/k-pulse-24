@@ -7,7 +7,7 @@ import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
-import feedparser # pip install feedparser 필요
+import feedparser 
 
 def get_naver_api_news(keyword):
     """네이버 API 뉴스 검색 (타임아웃 10초)"""
@@ -45,6 +45,7 @@ def get_naver_api_news(keyword):
 def get_article_data(link):
     """
     [업그레이드] 기사 본문(1,500자) 및 이미지 통합 추출 함수
+    * 수정사항: Mixed Content 방지를 위해 HTTPS 이미지 강제
     """
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     
@@ -73,7 +74,7 @@ def get_article_data(link):
             # 본문 태그를 못 찾았을 경우, body 전체에서 텍스트만이라도 긁어오기 시도 (최후의 수단)
             full_text = soup.body.get_text(separator=' ', strip=True)[:1000] if soup.body else ""
 
-        # --- 2. 이미지 추출 ---
+        # --- 2. 이미지 추출 (HTTPS 강제 적용) ---
         image_url = None
         
         # 본문 영역 안의 이미지를 1순위로 찾음
@@ -81,7 +82,9 @@ def get_article_data(link):
             imgs = content_area.find_all('img')
             for i in imgs:
                 src = i.get('src') or i.get('data-src')
-                if src and 'http' in src:
+                
+                # [수정] http:// 는 버리고 반드시 https:// 로 시작하는 것만 가져옴
+                if src and src.startswith('https://'):
                     # 너무 작은 아이콘/배너 제외
                     width = i.get('width')
                     if width and width.isdigit() and int(width) < 200: continue
@@ -92,7 +95,10 @@ def get_article_data(link):
         if not image_url:
             og = soup.find('meta', property='og:image')
             if og and og.get('content'): 
-                image_url = og['content']
+                candidate = og['content']
+                # [수정] 메타 태그 이미지도 https 인지 확인
+                if candidate.startswith('https://'):
+                    image_url = candidate
 
         # 불량 이미지 키워드 필터링
         if image_url:
@@ -103,7 +109,7 @@ def get_article_data(link):
         return full_text, image_url
 
     except Exception as e:
-        print(f"    ⚠️ 크롤링 실패 ({link[:30]}...): {e}")
+        # print(f"    ⚠️ 크롤링 실패 ({link[:30]}...): {e}")
         return "", None
 
 def get_google_trending_keywords():
