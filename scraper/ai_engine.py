@@ -47,8 +47,8 @@ CATEGORY_SEEDS = {
 }
 
 # [2. 설정 상수]
-NAVER_DISPLAY_COUNT = 100 # [추가] 하루 모든 뉴스를 위해 100개로 상향
-TOP_RANK_LIMIT = 30  # 카테고리당 30위까지 선정
+NAVER_DISPLAY_COUNT = 100 
+TOP_RANK_LIMIT = 30  
 
 # =========================================================
 # 1. 모델 선택 로직 (Groq 전용)
@@ -96,7 +96,7 @@ def ask_ai_master(system_prompt, user_input):
             completion = client.chat.completions.create(
                 model=model_id,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_input}],
-                temperature=0.2 # [조정] 분류 정확도를 위해 0.2로 소폭 낮춤
+                temperature=0.2 
             )
             res = completion.choices[0].message.content.strip()
             if res: return clean_ai_response(res)
@@ -115,12 +115,11 @@ def parse_json_result(text):
     return []
 
 # =========================================================
-# 3. [핵심] 카테고리별 엄격 분류 (Strict Mode 강화)
+# 3. [핵심] 카테고리별 엄격 분류
 # =========================================================
 
 def extract_top_entities(category, news_text_data):
     specific_rule = ""
-    # [수정] 드라마 섹션에서 미스트롯과 같은 예능을 더 강력하게 배제
     if category.lower() == 'k-drama':
         specific_rule = """
         [STRICT K-DRAMA MODE]
@@ -132,13 +131,8 @@ def extract_top_entities(category, news_text_data):
         specific_rule = "[STRICT K-MOVIE MODE] 'content' MUST be a theatrical film title only. No TV shows."
     elif category.lower() == 'k-pop':
         specific_rule = "[STRICT K-POP MODE] 'content' MUST be a Song, Album, or Group name. No drama titles."
-    # [수정] Culture 섹션이 너무 텅 비지 않도록 유연성 확보
     elif category.lower() == 'k-culture':
-        specific_rule = """
-        [STRICT K-CULTURE MODE]
-        1. Focus on Lifestyle, Food, Places, Festivals, and Fashion trends.
-        2. If it is a general cultural phenomenon in Korea, include it.
-        """
+        specific_rule = "[STRICT K-CULTURE MODE] Focus on Lifestyle, Food, Places, Festivals, and Fashion trends."
 
     system_prompt = f"""
     You are an expert K-Content Analyst for '{category}'. 
@@ -164,13 +158,24 @@ def extract_top_entities(category, news_text_data):
     return []
 
 # =========================================================
-# 4. 브리핑 생성
+# 4. 브리핑 생성 (제목 자동 생성을 위해 JSON 반환으로 수정)
 # =========================================================
 
 def synthesize_briefing(keyword, news_contents):
-    system_prompt = f"Professional News Editor. Topic: {keyword}. Write a 10-line news briefing in English."
+    # [수정] 헤드라인과 요약을 함께 생성하도록 지시
+    system_prompt = f"""
+    You are a Professional News Editor. Topic: {keyword}
+    [TASK] 
+    1. Create a CATCHY, specific headline (No "[keyword] Update" style).
+    2. Write a 5-10 line news briefing in English.
+    [FORMAT] Return JSON ONLY: {{"title": "Creative Headline", "summary": "Briefing contents..."}}
+    """
     user_input = "\n\n".join(news_contents)[:40000] 
     result = ask_ai_master(system_prompt, user_input)
-    if not result or "INVALID_DATA" in result or len(result) < 50:
+    
+    # 딕셔너리 형태로 반환하여 main.py에서 활용 가능하게 함
+    parsed_data = parse_json_result(result)
+    
+    if not parsed_data or not isinstance(parsed_data, dict) or not parsed_data.get('summary'):
         return None
-    return result
+    return parsed_data
