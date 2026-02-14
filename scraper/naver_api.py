@@ -10,25 +10,40 @@ CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 def search_news_api(keyword, display=10):
-    """네이버 뉴스 검색 API"""
+    """네이버 뉴스 검색 API (디버깅 강화)"""
+    # 키 확인
     if not CLIENT_ID or not CLIENT_SECRET:
-        print("🚨 Naver API Keys missing!")
+        print(f"   🚨 [Naver API Error] Client ID or Secret is MISSING. (ID={CLIENT_ID})")
         return []
 
     url = "https://openapi.naver.com/v1/search/news.json"
-    headers = {"X-Naver-Client-Id": CLIENT_ID, "X-Naver-Client-Secret": CLIENT_SECRET}
+    
+    # 공백 제거 (시크릿 키 오류 방지)
+    headers = {
+        "X-Naver-Client-Id": CLIENT_ID.strip(), 
+        "X-Naver-Client-Secret": CLIENT_SECRET.strip()
+    }
     params = {"query": keyword, "display": display, "sort": "sim"}
 
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=5)
+        
         if resp.status_code == 200:
-            return resp.json().get('items', [])
-        return []
-    except:
+            items = resp.json().get('items', [])
+            # print(f"   ✅ Naver Search Success: Found {len(items)} items.")
+            return items
+        else:
+            # [중요] 에러 원인 출력
+            print(f"   🚨 [Naver API Fail] Status: {resp.status_code}")
+            print(f"   🚨 Message: {resp.text}")
+            return []
+            
+    except Exception as e:
+        print(f"   🚨 [Naver Connection Error] {e}")
         return []
 
 def crawl_article(url):
-    """뉴스 본문 및 이미지 추출 (봇)"""
+    """뉴스 본문 및 이미지 추출"""
     if "news.naver.com" not in url:
         return {"text": "", "image": ""}
 
@@ -37,11 +52,10 @@ def crawl_article(url):
     }
 
     try:
-        time.sleep(0.5) # 차단 방지
+        time.sleep(0.3) 
         resp = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(resp.text, 'html.parser')
 
-        # 1. 본문 추출
         content = ""
         for selector in ["#dic_area", "#articeBody", "#newsEndContents"]:
             el = soup.select_one(selector)
@@ -51,7 +65,6 @@ def crawl_article(url):
                 content = el.get_text(strip=True)
                 break
         
-        # 2. 이미지 추출 (OpenGraph 태그 활용)
         image_url = ""
         og_img = soup.select_one('meta[property="og:image"]')
         if og_img:
