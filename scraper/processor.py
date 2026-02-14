@@ -9,52 +9,69 @@ import database
 def run_category_process(category):
     print(f"\n🚀 [Processing] Category: {category}")
 
-    # 1. 초기 뉴스 수집
-    keyword = config.SEARCH_KEYWORDS.get(category)
-    print(f"   1️⃣ Fetching base news for '{keyword[:10]}...'")
-    raw_items = naver_api.search_news_api(keyword, display=100)
+    # 1. [수정됨] 3개의 키워드로 각각 검색 후 결과 합치기
+    queries = config.SEARCH_QUERIES.get(category, [])
+    all_raw_items = []
+    seen_links = set() # 중복 기사 제거용
+
+    print(f"   1️⃣ Fetching news with 3 queries...")
     
-    if not raw_items:
-        print("   ❌ [Stop] No items found.")
+    for q in queries:
+        print(f"      - Query: '{q}'")
+        # 각 쿼리당 20개씩 수집 (총 60개 확보)
+        items = naver_api.search_news_api(q, display=20)
+        
+        for item in items:
+            # 중복 제거 (링크 기준)
+            if item['link'] not in seen_links:
+                seen_links.add(item['link'])
+                all_raw_items.append(item)
+        
+        time.sleep(0.5) # API 매너 호출
+
+    if not all_raw_items:
+        print("   ❌ [Stop] No items found from all queries.")
         return
 
-    titles = "\n".join([f"- {item['title']}" for item in raw_items])
+    print(f"      ✅ Total collected articles: {len(all_raw_items)}")
+    
+    # AI에게 보낼 기사 제목 리스트 생성
+    titles = "\n".join([f"- {item['title']}" for item in all_raw_items])
 
-    # 2. 랭킹 & 검색 키워드 추출 (여기가 핵심)
+    # 2. 랭킹 & 검색 키워드 추출
     print("   2️⃣ Extracting Keywords (Subject vs Person)...")
 
-    # 카테고리별 맞춤형 지시사항 (User Rule 적용)
+    # 카테고리별 규칙 (지난번과 동일)
     if category == "K-Pop":
         rule = """
-        - Target(DB): Must be the **SONG TITLE** (e.g., 'Super Shy', 'Dynamite').
-        - Search: Must be the **ARTIST/GROUP NAME** (e.g., 'NewJeans', 'BTS').
+        - Target(DB): **SONG TITLE** (e.g., 'Super Shy').
+        - Search: **ARTIST/GROUP NAME** (e.g., 'NewJeans').
         """
     elif category == "K-Drama":
         rule = """
-        - Target(DB): Must be the **DRAMA TITLE** (e.g., 'Squid Game').
-        - Search: Must be the **MAIN ACTOR/ACTRESS Name** (e.g., 'Lee Jung-jae').
+        - Target(DB): **DRAMA TITLE** (e.g., 'Squid Game').
+        - Search: **MAIN ACTOR NAME** (e.g., 'Lee Jung-jae').
         """
     elif category == "K-Movie":
         rule = """
-        - Target(DB): Must be the **MOVIE TITLE** (e.g., 'Exhuma').
-        - Search: Must be the **MAIN ACTOR/ACTRESS Name** (e.g., 'Choi Min-sik').
+        - Target(DB): **MOVIE TITLE** (e.g., 'Exhuma').
+        - Search: **MAIN ACTOR NAME** (e.g., 'Choi Min-sik').
         """
     elif category == "K-Entertain":
         rule = """
-        - Target(DB): Must be the **SHOW TITLE** (e.g., 'Running Man').
-        - Search: Must be the **CAST MEMBER Name** (e.g., 'Yoo Jae-suk').
+        - Target(DB): **SHOW TITLE** (e.g., 'Running Man').
+        - Search: **CAST MEMBER NAME** (e.g., 'Yoo Jae-suk').
         """
     else: # K-Culture
         rule = """
-        - Target(DB): Must be the Place, Food, or Tradition Name (English).
+        - Target(DB): Place, Food, or Tradition Name (English).
         - Search: Korean Name of the Place/Food.
-        - **CRITICAL**: EXCLUDE ANY IDOLS, SINGERS, ACTORS, or K-POP GROUPS.
-        - If the news is about an idol visiting a place, IGNORE IT.
+        - **CRITICAL**: EXCLUDE ALL IDOLS/KPOP GROUPS. Focus only on Travel/Food.
         """
 
     rank_prompt = f"""
     [Task]
-    Analyze these news titles about {category}.
+    Analyze these {len(all_raw_items)} news titles about {category}.
     Extract Top 10 trends following these STRICT rules:
     {rule}
 
@@ -77,13 +94,13 @@ def run_category_process(category):
 
     rankings = rank_res.get("rankings", [])[:10]
     
-    # 랭킹 저장 (DB에는 제목/노래제목이 들어감)
+    # 랭킹 저장
     db_rankings = []
     for item in rankings:
         db_rankings.append({
             "category": category,
             "rank": item.get("rank"),
-            "title": item.get("display_title_en"), # 제목 (영어)
+            "title": item.get("display_title_en"),
             "meta_info": item.get("meta", ""),
             "score": item.get("score", 0),
             "updated_at": datetime.now().isoformat()
@@ -92,14 +109,13 @@ def run_category_process(category):
 
     # 3. 타겟 선정 (도배 방지)
     print("   3️⃣ Selecting Target...")
-    target_display = ""  # DB 저장용 (제목)
-    target_search = ""   # 네이버 검색용 (사람)
+    target_display = ""
+    target_search = ""
     
     for item in rankings:
         d_title = item.get("display_title_en")
         s_word = item.get("search_keyword_kr")
         
-        # 쿨타임 체크는 '제목(DB키)' 기준으로 함
         if database.is_keyword_used_recently(category, d_title, hours=4):
             print(f"      - Skip '{d_title}' (Cooldown)")
         else:
@@ -114,7 +130,7 @@ def run_category_process(category):
 
     if not target_display: return
 
-    # 4. 정밀 검색 (지시하신 대로 '사람 이름'으로 검색)
+    # 4. 정밀 검색
     print(f"   4️⃣ Searching Naver for '{target_search}'...")
     target_items = naver_api.search_news_api(target_search, display=5)
     
@@ -148,8 +164,8 @@ def run_category_process(category):
 
     [Task]
     Write a news summary in **ENGLISH**.
-    - Title: Must be about '{target_display}' (The Song/Drama/Movie).
-    - Content: Summarize the news, focusing on why '{target_search}' (The Person) is in the news regarding '{target_display}'.
+    - Title: Must be about '{target_display}' (Song/Drama/Place).
+    - Summary: Focus on why '{target_search}' is in the news regarding '{target_display}'.
 
     [Output JSON]
     {{ "title": "English Title", "summary": "English Summary..." }}
@@ -160,7 +176,7 @@ def run_category_process(category):
     if sum_res:
         news_item = {
             "category": category,
-            "keyword": target_display, # DB에는 노래/드라마 제목 저장
+            "keyword": target_display,
             "title": sum_res.get("title", f"News about {target_display}"),
             "summary": sum_res.get("summary", ""),
             "link": target_link,
@@ -170,7 +186,6 @@ def run_category_process(category):
             "likes": 0
         }
         
-        # 6. 저장
         database.save_news_to_live([news_item])
         database.save_news_to_archive([news_item])
         database.cleanup_old_data(category, config.MAX_ITEMS_PER_CATEGORY)
