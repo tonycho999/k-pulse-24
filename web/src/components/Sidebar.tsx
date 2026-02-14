@@ -15,35 +15,36 @@ interface SidebarProps {
 
 export default function Sidebar({ news, category }: SidebarProps) {
   const [rankings, setRankings] = useState<RankingItemData[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // 로딩 초기값 true
 
+  // 1. 랭킹 데이터 가져오기
   useEffect(() => {
     const fetchRankings = async () => {
       setLoading(true);
       try {
         let data: RankingItemData[] | null = null;
-
-        // ✅ [수정] 테이블 이름을 'live_rankings'로 통일
+        
+        // 테이블 이름: live_rankings (확인됨)
         if (category === 'All') {
           const { data: trendingData, error } = await supabase
-            .from('live_rankings')  // <-- 여기 수정됨
+            .from('live_rankings') 
             .select('*')
             .order('score', { ascending: false })
             .limit(10);
           
           if (error) throw error;
+          
           if (trendingData) {
-            data = trendingData.map((item, index) => ({
+             data = trendingData.map((item, index) => ({
               ...item,
               rank: index + 1
             })) as RankingItemData[];
           }
         } else {
-          const targetCategory = category.toLowerCase();
           const { data: categoryData, error } = await supabase
-            .from('live_rankings')  // <-- 여기 수정됨
+            .from('live_rankings')
             .select('*')
-            .eq('category', targetCategory)
+            .eq('category', category.toLowerCase()) // 소문자 변환 주의
             .order('rank', { ascending: true })
             .limit(10);
             
@@ -53,8 +54,8 @@ export default function Sidebar({ news, category }: SidebarProps) {
 
         setRankings(data || []);
       } catch (error) {
-        console.error("Sidebar Error:", error);
-        setRankings([]);
+        console.error("Sidebar Ranking Fetch Error:", error);
+        setRankings([]); // 에러나면 빈 배열
       } finally {
         setLoading(false);
       }
@@ -63,6 +64,7 @@ export default function Sidebar({ news, category }: SidebarProps) {
     fetchRankings();
   }, [category]);
 
+  // 2. 헤더 정보 설정 (안전하게 처리)
   const headerInfo = useMemo(() => {
     switch (category) {
       case 'K-Pop': return { title: 'Top 10 Music Chart', icon: <Music size={18} /> };
@@ -74,16 +76,19 @@ export default function Sidebar({ news, category }: SidebarProps) {
     }
   }, [category]);
 
+  // 3. 좋아요 Top 3 (데이터 없으면 빈 배열)
   const topLiked = useMemo(() => {
-      if (!news) return [];
+      if (!news || news.length === 0) return [];
       return [...news]
         .sort((a, b) => (b.likes || 0) - (a.likes || 0))
         .slice(0, 3);
   }, [news]);
 
   return (
-    <aside className="lg:col-span-1 space-y-6">
-      <section className="bg-white dark:bg-slate-900 rounded-[32px] p-6 border border-slate-100 dark:border-slate-800 shadow-sm animate-in fade-in slide-in-from-right-4 duration-500">
+    <aside className="lg:col-span-1 space-y-6 w-full"> {/* w-full 추가 */}
+      
+      {/* 1. 실시간 랭킹 섹션 */}
+      <section className="bg-white dark:bg-slate-900 rounded-[32px] p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
         <div className="flex items-center gap-2 mb-4 text-cyan-600 dark:text-cyan-400 border-b border-slate-50 dark:border-slate-800 pb-3">
           {headerInfo.icon}
           <h3 className="font-black uppercase tracking-wider text-sm">
@@ -93,26 +98,33 @@ export default function Sidebar({ news, category }: SidebarProps) {
         
         <div className="space-y-1">
           {loading ? (
-              <div className="text-center py-8 text-xs text-slate-400 animate-pulse">Update Charts...</div>
+              <div className="text-center py-8 text-xs text-slate-400 animate-pulse">
+                Updating Charts...
+              </div>
           ) : rankings.length > 0 ? (
               rankings.map((item, index) => (
                 <RankingItem 
-                    key={item.id || `${item.category}-${item.rank}-${index}`} 
+                    // key 중복 방지 강화
+                    key={item.id || `rank-${index}-${item.title}`} 
                     rank={item.rank} 
                     item={item} 
                 />
               ))
           ) : (
-              <div className="text-center py-6 text-xs text-slate-400 italic">
-                Ranking data preparing...
+              // 데이터가 없을 때 표시될 UI
+              <div className="text-center py-8">
+                <p className="text-xs text-slate-400 italic mb-2">Ranking data preparing...</p>
+                <p className="text-[10px] text-slate-300">Run scraper to fetch data</p>
               </div>
           )}
         </div>
       </section>
 
+      {/* 2. 부가 기능 */}
       <KeywordTicker />
       <VibeCheck />
       
+      {/* 3. 유저 초이스 (좋아요 순) */}
       <section className="bg-white dark:bg-slate-900 rounded-[32px] p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
         <div className="flex items-center gap-2 mb-6 text-cyan-500">
           <Trophy size={18} className="fill-current" />
@@ -124,7 +136,7 @@ export default function Sidebar({ news, category }: SidebarProps) {
         <div className="space-y-4">
           {topLiked.length > 0 ? (
             topLiked.map((m, idx) => (
-              <div key={m.id} className="group cursor-pointer border-b border-slate-50 dark:border-slate-800 pb-3 last:border-0 last:pb-0 hover:pl-2 transition-all duration-300">
+              <div key={m.id || idx} className="group cursor-pointer border-b border-slate-50 dark:border-slate-800 pb-3 last:border-0 last:pb-0 hover:pl-2 transition-all duration-300">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[10px] font-black text-slate-300 uppercase">#{idx + 1}</span>
                   <span className="text-[10px] font-bold text-cyan-500 uppercase">{m.category}</span>
