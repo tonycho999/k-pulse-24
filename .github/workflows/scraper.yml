@@ -2,8 +2,8 @@ name: K-Enter 24 Auto Scraper
 
 on:
   schedule:
-    # 매 시간 23분에 실행 (1시간 간격)
-    - cron: '23 * * * *'
+    # 매 시간 21분에 실행 (1시간 간격)
+    - cron: '21 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -16,12 +16,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          # [중요 수정] 3.9 -> 3.11로 변경 (Google 라이브러리 경고 해결)
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # [수정] 파일 경로를 scraper/requirements.txt 로 변경해야 합니다!
+          # [중요 수정] requirements.txt 경로를 'scraper/' 폴더 안으로 지정
           pip install -r scraper/requirements.txt
 
       - name: Run Scraper
@@ -29,5 +30,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} 
-          # 주의: 구글 키 이름이 GOOGLE_API_KEY인지 확인하세요!
+          # 주의: GitHub Secrets에 저장된 키 이름과 일치해야 합니다.
         run: python scraper/main.py
