@@ -18,49 +18,46 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # ---------------------------------------------------------
-# [기능 1] 최신 Flash 모델 자동 선택 (Lite/8b 제외)
+# [핵심 기능] 안전한 모델 선택기 (서비스 종료 대비)
 # ---------------------------------------------------------
-def get_best_flash_model():
+def select_safe_model():
     """
-    Flash 모델 중 '검색 기능'이 지원되는 최신 버전을 찾습니다.
-    Lite 버전이나 8b 버전은 검색 도구를 지원하지 않으므로 제외합니다.
+    1지망부터 순서대로 모델이 존재하는지 확인하고,
+    가장 먼저 발견되는 '사용 가능한' 모델을 선택합니다.
     """
+    # 우리가 원하는 모델 후보군 (순서가 중요합니다!)
+    # 1순위: 현재 가장 안정적이고 무료 량이 많은 모델
+    # 2순위: 미래에 나올 버전 (미리 적어둠)
+    # 3순위: 구버전 백업
+    candidates = [
+        "models/gemini-1.5-flash",      # [1지망] 현재 표준 (무료 1500회/일)
+        "models/gemini-2.0-flash",      # [2지망] 미래 출시 대비 (혹시 1.5가 망하면 이거 씀)
+        "models/gemini-1.5-flash-001",  # [3지망] 특정 버전 고정
+        "models/gemini-1.5-flash-002",  # [4지망] 업데이트 버전
+        "models/gemini-flash-latest"    # [5지망] 최후의 보루 (다 없으면 이거라도)
+    ]
+
     try:
-        print("🔍 최신 AI 모델(Flash) 탐색 중...")
-        models = genai.list_models()
+        print("🔍 사용 가능한 AI 모델 목록 조회 중...")
+        # 현재 구글 서버에 살아있는 모델 목록을 다 가져옵니다.
+        available_models = [m.name for m in genai.list_models()]
         
-        valid_models = []
-        for m in models:
-            name = m.name.lower()
-            # 1. 'flash'가 포함되어야 함
-            if 'flash' not in name:
-                continue
-            # 2. 'lite'는 제외 (검색 기능 미지원)
-            if 'lite' in name:
-                continue
-            # 3. '8b'도 제외 (혹시 모를 기능 제한 방지)
-            if '8b' in name:
-                continue
-            # 4. 콘텐츠 생성이 가능한 모델이어야 함
-            if 'generateContent' in m.supported_generation_methods:
-                valid_models.append(m.name)
+        for candidate in candidates:
+            if candidate in available_models:
+                print(f"✅ 모델 확정: {candidate} (서비스 중)")
+                return candidate
         
-        if valid_models:
-            # 이름순 정렬 후 가장 마지막(최신) 것 선택
-            # 예: ['models/gemini-1.5-flash', 'models/gemini-1.5-flash-latest'] -> latest 선택
-            best_model = sorted(valid_models)[-1]
-            print(f"✅ 선택된 최적 모델: {best_model}")
-            return best_model
-        
-        print("⚠️ 적절한 Flash 모델을 찾지 못해 기본값(1.5-flash)을 사용합니다.")
-        return 'models/gemini-1.5-flash'
+        # 후보군이 다 없으면? (거의 불가능하지만)
+        # 검색 기능은 안 되더라도 텍스트라도 되는 모델을 찾습니다.
+        print("⚠️ 후보 모델을 찾을 수 없어 'gemini-1.5-flash'를 강제 시도합니다.")
+        return "models/gemini-1.5-flash"
 
     except Exception as e:
-        print(f"⚠️ 모델 탐색 중 에러: {e}")
-        return 'models/gemini-1.5-flash'
+        print(f"⚠️ 모델 조회 실패 ({e}). 기본값으로 진행합니다.")
+        return "models/gemini-1.5-flash"
 
-# 모델 초기화 (자동 선택된 모델 적용)
-SELECTED_MODEL_NAME = get_best_flash_model()
+# 여기서 함수를 실행해 최적의 모델을 변수에 담습니다.
+SELECTED_MODEL_NAME = select_safe_model()
 model = genai.GenerativeModel(SELECTED_MODEL_NAME, tools='google_search_retrieval')
 
 # ---------------------------------------------------------
@@ -90,7 +87,7 @@ CATEGORIES = {
 }
 
 # ---------------------------------------------------------
-# [기능 2] Gemini 검색 및 데이터 생성
+# [기능] Gemini 검색 및 데이터 생성
 # ---------------------------------------------------------
 def fetch_data_from_gemini(category_name, instructions):
     print(f"🤖 [Gemini] '{category_name}' 분석 중... (Model: {SELECTED_MODEL_NAME})")
@@ -137,7 +134,7 @@ def fetch_data_from_gemini(category_name, instructions):
         return None
 
 # ---------------------------------------------------------
-# [기능 3] 데이터베이스 저장 (Live + Archive + Ranking)
+# [기능] 데이터베이스 저장 (Live + Archive + Ranking)
 # ---------------------------------------------------------
 def update_database(category, data):
     # 1. 뉴스 데이터 처리
@@ -201,15 +198,18 @@ def update_database(category, data):
 
 def main():
     print("🚀 뉴스 및 랭킹 업데이트 시작")
+    print(f"ℹ️ 사용할 모델: {SELECTED_MODEL_NAME}")
     
     for category, instructions in CATEGORIES.items():
         data = fetch_data_from_gemini(category, instructions)
         if data:
             update_database(category, data)
         else:
-            print(f"⚠️ {category} 데이터 수집 실패")
-            
-        time.sleep(2)
+            print(f"⚠️ {category} 데이터 수집 실패 (Quota 초과 등)")
+        
+        # API 호출 제한 방지 (15초 대기)
+        print("⏳ 다음 작업을 위해 15초 대기...")
+        time.sleep(15)
 
     print("✅ 모든 작업 완료")
 
