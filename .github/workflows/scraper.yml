@@ -1,9 +1,9 @@
 name: K-Enter 24 Auto Scraper
 
 on:
-  schedule:
-    # 0분(정각)을 피해 23분과 53분에 실행되도록 설정 (약 30분 간격)
-    - cron: '23,53 * * * *'
+#  schedule:
+#   # 0분(정각)을 피해 23분과 53분에 실행되도록 설정 (약 30분 간격)
+#   - cron: '23,53 * * * *'
   workflow_dispatch: # 수동 실행 버튼 유지
 
 jobs:
