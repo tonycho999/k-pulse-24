@@ -7,15 +7,15 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 from ddgs import DDGS
 
-# 1. Load Environment Variables
+# 1. 환경변수 로드
 load_dotenv()
 
-# 2. Supabase Setup
+# 2. Supabase 설정
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 3. Gemini API Key
+# 3. Gemini API 키
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 if GOOGLE_API_KEY:
@@ -23,23 +23,49 @@ if GOOGLE_API_KEY:
 else:
     print("❌ No API Key found!")
 
-# Categories
+# ✅ [핵심 변경 1] 검색어를 '한국어'로 변경해야 최신 뉴스가 잡힘
 CATEGORIES = {
-    "K-Pop": "k-pop latest news trends",
-    "K-Drama": "k-drama ratings news",
-    "K-Movie": "korean movie box office news",
-    "K-Entertain": "korean variety show news reality show trends", 
-    "K-Culture": "seoul travel food trends"
+    "K-Pop": "K-POP 아이돌 최신 뉴스 컴백",
+    "K-Drama": "한국 드라마 시청률 순위 최신 뉴스",
+    "K-Movie": "한국 영화 박스오피스 개봉작 반응",
+    "K-Entertain": "한국 예능 프로그램 시청률 화제성", 
+    "K-Culture": "서울 핫플레이스 유행 팝업스토어 트렌드" 
 }
 
-# Use Stable Model (1.5 Flash)
-CURRENT_MODEL_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+# 모델 자동 탐색 (404 방지)
+def get_dynamic_model_url():
+    print("🔍 Fetching available Gemini models...")
+    list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GOOGLE_API_KEY}"
+    
+    try:
+        response = requests.get(list_url)
+        if response.status_code == 200:
+            data = response.json()
+            models = data.get('models', [])
+            valid_models = [
+                m['name'] for m in models 
+                if 'generateContent' in m.get('supportedGenerationMethods', []) 
+                and 'flash' in m['name']
+            ]
+            if valid_models:
+                best_model = valid_models[-1] 
+                if not best_model.startswith("models/"):
+                    best_model = f"models/{best_model}"
+                print(f"✅ Selected Model: {best_model}")
+                return f"https://generativelanguage.googleapis.com/v1beta/{best_model}:generateContent"
+    except Exception as e:
+        print(f"⚠️ Model fetch failed: {e}")
+
+    return "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent"
+
+CURRENT_MODEL_URL = get_dynamic_model_url()
 
 def get_fallback_image(keyword):
-    """Finds an image if the news article doesn't have one."""
+    """뉴스에 이미지가 없을 때 이미지 검색 (한국어 검색)"""
     try:
         with DDGS() as ddgs:
-            imgs = list(ddgs.images(keywords=keyword, region="wt-wt", safesearch="off", max_results=1))
+            # 여기도 kr-kr로 검색해야 이미지가 잘 나옴
+            imgs = list(ddgs.images(keywords=keyword, region="kr-kr", safesearch="off", max_results=1))
             if imgs and len(imgs) > 0:
                 return imgs[0].get('image')
     except Exception:
@@ -47,18 +73,23 @@ def get_fallback_image(keyword):
     return ""
 
 def search_web(keyword):
-    """DuckDuckGo Search: HTTPS only + Image required + Last 24h Only"""
-    print(f"🔍 [Search] Searching for '{keyword}' (Last 24h)...")
+    """
+    DuckDuckGo 검색: 
+    - 키워드: 한국어
+    - 지역: 한국 (kr-kr) -> 이게 핵심!
+    - 기간: 지난 24시간 (d)
+    """
+    print(f"🔍 [Search] Searching for '{keyword}' in Korea (Last 24h)...")
     results = []
     
     try:
         with DDGS() as ddgs:
-            # ✅ [수정] timelimit="d" 추가 -> '지난 24시간' 기사만 검색
+            # ✅ [핵심 변경 2] region="kr-kr" (한국)
             ddg_results = list(ddgs.news(
                 query=keyword, 
-                region="wt-wt", 
+                region="kr-kr",   # 한국 뉴스만 검색
                 safesearch="off", 
-                timelimit="d", # <--- 여기가 핵심! (d=day, w=week, m=month)
+                timelimit="d",    # 지난 24시간 (한국어라 이제 데이터 많음)
                 max_results=15
             ))
             
@@ -73,7 +104,7 @@ def search_web(keyword):
 
                 if not image:
                     image = get_fallback_image(title)
-                    time.sleep(0.5) 
+                    time.sleep(0.3) 
 
                 if not image:
                     continue
@@ -86,40 +117,42 @@ def search_web(keyword):
     return "\n\n".join(results)
 
 def call_gemini_api(category_name, raw_data):
-    print(f"🤖 [Gemini] Writing articles for '{category_name}' (English Mode)...")
+    print(f"🤖 [Gemini] Translating & Writing '{category_name}' articles...")
     
     headers = {"Content-Type": "application/json"}
     
+    # ✅ [핵심 변경 3] 한국어 데이터를 줄 테니 -> 영어로 기사를 써라 (번역+요약)
     prompt = f"""
     [Role]
-    You are a veteran K-Entertainment journalist with 20 years of experience writing for an international audience.
-    Your writing style is analytical, insightful, and engaging (perfect English).
-
-    [Input Data]
+    You are a veteran K-Entertainment journalist writing for an international audience.
+    
+    [Input Data (Korean News)]
     {raw_data[:25000]} 
 
     [Task]
-    Select the Top 10 most impactful news items for '{category_name}' and rewrite them in ENGLISH.
+    1. Read the Korean news provided above.
+    2. Select the Top 10 most viral/important news items.
+    3. **Rewrite/Translate them into PERFECT ENGLISH.**
     
     [Content Requirements - STRICT]
-    1. **Language**: MUST be written in **ENGLISH**.
-    2. **Length**: Each summary must be between **100 and 500 characters**.
-    3. **Depth**: Provide context (why this matters). Do not just copy the headline.
-    4. **Image**: You MUST map the 'image_url' from the raw data exactly.
+    1. **Language**: Output MUST be in **ENGLISH**.
+    2. **Length**: 100~500 characters per summary.
+    3. **Style**: Insightful, catchy, and professional.
+    4. **Image**: Map the 'image_url' from raw data exactly.
 
     [Output Format (JSON Only)]
     {{
       "news_updates": [
         {{ 
-          "keyword": "Main Subject", 
-          "title": "Compelling Title (English)", 
-          "summary": "Detailed Article (English, 100-500 chars)", 
+          "keyword": "Main Subject (English)", 
+          "title": "Title (English)", 
+          "summary": "Summary (English, 100-500 chars)", 
           "link": "Original Link",
           "image_url": "URL starting with https"
         }}
       ],
       "rankings": [
-        {{ "rank": 1, "title": "Name (English)", "meta": "Short Info (English)", "score": 98 }}
+        {{ "rank": 1, "title": "Name (English)", "meta": "Info (English)", "score": 98 }}
       ]
     }}
     """
@@ -141,9 +174,13 @@ def call_gemini_api(category_name, raw_data):
                     print(f"   ⚠️ JSON Parse Error: {e}")
                     return None
             
+            elif response.status_code in [404]:
+                 print(f"   ❌ Model Not Found (404).")
+                 return None
+
             elif response.status_code in [429, 503]:
-                wait_time = (attempt + 1) * 20
-                print(f"   ❌ Temporary Error ({response.status_code}): Retrying in {wait_time}s...")
+                wait_time = (attempt + 1) * 10
+                print(f"   ❌ Temporary Error ({response.status_code}). Retrying...")
                 time.sleep(wait_time)
                 continue
             
@@ -153,13 +190,12 @@ def call_gemini_api(category_name, raw_data):
 
         except Exception as e:
             print(f"   ❌ Connection Error: {e}")
-            time.sleep(10)
+            time.sleep(5)
             continue
             
     return None
 
 def update_database(category, data):
-    # Save News
     news_list = data.get("news_updates", [])
     if news_list:
         clean_news = []
@@ -172,6 +208,7 @@ def update_database(category, data):
             if len(summary) < 50: 
                 continue
 
+            # 구글 뉴스 검색 링크 생성
             encoded_query = urllib.parse.quote(f"{title} k-pop news")
             search_link = f"https://www.google.com/search?q={encoded_query}&tbm=nws"
 
@@ -195,7 +232,6 @@ def update_database(category, data):
             except Exception as e:
                 print(f"   ⚠️ DB Save Error: {e}")
 
-    # Save Rankings
     rank_list = data.get("rankings", [])
     if rank_list:
         clean_ranks = []
@@ -215,20 +251,20 @@ def update_database(category, data):
              print(f"   ⚠️ Ranking Save Error: {e}")
 
 def main():
-    print(f"🚀 Scraper Started (Last 24h News Only)")
+    print(f"🚀 Scraper Started (Korea Region Source -> English Output)")
     for category, search_keyword in CATEGORIES.items():
         raw_text = search_web(search_keyword)
         
         if len(raw_text) < 50: 
-            print(f"⚠️ {category} : Not enough data.")
+            print(f"⚠️ {category} : Not enough data (Surprisingly).")
             continue
 
         data = call_gemini_api(category, raw_text)
         if data:
             update_database(category, data)
         
-        print("⏳ Cooldown (10s)...")
-        time.sleep(10) 
+        print("⏳ Cooldown (5s)...")
+        time.sleep(5) 
 
     print("✅ All jobs finished.")
 
