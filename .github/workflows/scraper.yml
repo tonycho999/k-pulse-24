@@ -2,8 +2,9 @@ name: K-Enter 24 Auto Scraper
 
 on:
   schedule:
-    - cron: '23 * * * *'
-  workflow_dispatch:
+    # 매 시간 12분, 42분에 실행 (UTC 기준이라 한국 시간과 분은 동일)
+    - cron: '12,42 * * * *'
+  workflow_dispatch: # 수동 실행 버튼
 
 jobs:
   build:
@@ -15,7 +16,6 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          # [중요] 3.11로 되어 있는지 꼭 확인하세요! (3.9 아님)
           python-version: '3.11'
 
       - name: Install dependencies
@@ -25,7 +25,12 @@ jobs:
 
       - name: Run Scraper
         env:
+          # Supabase 키
           SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          # Google AI 키
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          # [추가됨] 네이버 API 키 (GitHub Secrets에 등록 필수!)
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         run: python scraper/main.py
