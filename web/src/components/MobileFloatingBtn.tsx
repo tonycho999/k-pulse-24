@@ -14,7 +14,7 @@ export default function MobileFloatingBtn() {
     const fetchData = async () => {
       // 1. 트렌드 키워드 Top 10
       const { data: kwData } = await supabase
-        .from('trending_keywords')
+        .from('live_rankings')
         .select('*')
         .order('rank', { ascending: true })
         .limit(10);
