@@ -64,16 +64,17 @@ def ask_gemini(prompt):
 
     # [디버깅] URL 확인용 로그 (키는 가림)
     masked_url = url.replace(clean_key, "HIDDEN_KEY")
-    # print(f"   ℹ️ Request URL: {masked_url}") 
+    # print(f"    ℹ️ Request URL: {masked_url}") 
 
     headers = {"Content-Type": "application/json"}
     
-    # 안전 설정 (차단 방지)
+    # [수정] 모든 안전 설정 해제 (차단 방지 강화)
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"} # 선거/공공 정보 관련 차단 해제
     ]
 
     payload = {
@@ -93,6 +94,7 @@ def ask_gemini(prompt):
                 try:
                     res_json = resp.json()
                     if 'candidates' not in res_json or not res_json['candidates']:
+                        # 답변이 비어있거나 필터링된 경우
                         return None
                     
                     text = res_json['candidates'][0]['content']['parts'][0]['text']
@@ -117,12 +119,12 @@ def ask_gemini(prompt):
                 continue
                 
             else:
-                print(f"   ❌ Gemini Error {resp.status_code}: {resp.text[:100]}")
+                print(f"    ❌ Gemini Error {resp.status_code}: {resp.text[:100]}")
                 return None
 
         except Exception as e:
             # 여기서 e를 출력하면 'No connection adapters...'가 나옴
-            print(f"   ⚠️ Connection Error (Attempt {attempt+1}): {e}")
+            print(f"    ⚠️ Connection Error (Attempt {attempt+1}): {e}")
             print(f"      (URL was: {masked_url})") # URL 모양 확인
             time.sleep(2)
 
