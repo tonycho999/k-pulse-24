@@ -2,9 +2,9 @@ name: K-Enter 24 Auto Scraper
 
 on:
   schedule:
-    # 매 시간 12분, 42분에 실행 (UTC 기준이라 한국 시간과 분은 동일)
+    # 매 시간 12분, 42분에 실행 (UTC 기준이지만 분 단위는 한국 시간과 동일하게 동작함)
     - cron: '12,42 * * * *'
-  workflow_dispatch: # 수동 실행 버튼
+  workflow_dispatch: # 깃허브 웹에서 수동으로 즉시 실행 버튼 활성화
 
 jobs:
   build:
@@ -30,7 +30,10 @@ jobs:
           SUPABASE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           # Google AI 키
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          # [추가됨] 네이버 API 키 (GitHub Secrets에 등록 필수!)
+          # Naver API 키 (GitHub Secrets에 등록 필수)
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-        run: python scraper/main.py
+        run: |
+          # [중요] scraper 폴더로 이동 후 실행해야 내부 모듈(import config 등)을 찾을 수 있음
+          cd scraper
+          python main.py
