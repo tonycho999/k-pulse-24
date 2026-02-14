@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from dateutil import parser
 from dotenv import load_dotenv
 
+# 상위 디렉토리 참조 설정
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 
 from scraper import crawler, ai_engine, repository
@@ -12,6 +13,7 @@ from scraper.config import CATEGORY_SEEDS
 
 load_dotenv()
 
+# 유료 버전의 화력을 활용해 분석 범위를 30위까지 확대
 TARGET_RANK_LIMIT = 30 
 
 def is_within_24h(date_str):
@@ -32,40 +34,41 @@ def run_master_scraper():
     for category, seeds in CATEGORY_SEEDS.items():
         print(f"\n📂 [{category.upper()}] 트렌드 분석 시작")
         
-        # [1단계] 씨앗 데이터 수집 (24시간 이내)
+        # [1단계] 씨앗 데이터 수집 (24시간 이내 뉴스 요약본들)
         raw_text_data = [] 
         
         try:
             for seed in seeds:
+                # 시드별로 기사를 넉넉히 가져옴 (유료 버전 대응)
                 news_items = crawler.get_naver_api_news(seed, display=20)
                 for item in news_items:
                     if is_within_24h(item.get('pubDate')):
                         combined_text = f"Title: {item['title']}\nSummary: {item['description']}"
                         raw_text_data.append(combined_text)
             
-            # AI 입력용 데이터 제한
+            # AI 입력용 데이터 제한 (Groq 유료 모델은 60개 기사 분량도 충분히 소화)
             raw_text_data = raw_text_data[:60]
             print(f"   🌱 24시간 내 유효 기사 수집: {len(raw_text_data)}개")
             
+            # 기사가 1개라도 있으면 트렌드 분석을 진행합니다.
             if len(raw_text_data) < 1:
-                print("   ⚠️ 기사가 너무 적어 스킵합니다.")
+                print("   ⚠️ 기사가 전혀 없어 스킵합니다.")
                 continue
                 
         except Exception as e:
             print(f"   ⚠️ 씨앗 수집 오류: {e}")
             continue
         
-        # [2단계] AI 키워드 추출 및 정체 분류
-        # (여기서 이미 Netflix, MBC 같은 organization은 걸러져서 옴)
+        # [2단계] AI 키워드 추출 (Strict Mode 적용된 ai_engine 호출)
         top_entities = ai_engine.extract_top_entities(category, "\n".join(raw_text_data))
         
         if not top_entities: 
-            print("   ⚠️ 키워드 추출 실패")
+            print("   ⚠️ 키워드 추출 실패 혹은 유효한 키워드 없음")
             continue
             
         print(f"   💎 유효 키워드 (Top 5): {', '.join([e['keyword'] for e in top_entities[:5]])}...")
 
-        # [3단계] 키워드별 심층 분석 (30위까지)
+        # [3단계] 키워드별 심층 분석 (30위까지 분석 수행)
         category_news_list = []
         target_list = top_entities[:TARGET_RANK_LIMIT]
         
@@ -76,7 +79,7 @@ def run_master_scraper():
             print(f"   🔍 Rank {rank+1}: '{kw}' ({k_type}) 분석 중...")
             
             try:
-                # 기사 검색
+                # 특정 키워드로 기사 검색 (유료 버전이므로 50개씩 확인)
                 raw_articles = crawler.get_naver_api_news(kw, display=50)
                 if not raw_articles: continue
 
@@ -86,32 +89,41 @@ def run_master_scraper():
                 
                 for art in raw_articles:
                     if not is_within_24h(art.get('pubDate')): continue
-                        
-                       text, img = crawler.get_article_data(art['link'])
+                    
+                    # [중요] target_keyword를 빼서 'BTS'와 '방탄소년단' 혼용을 허용합니다.
+                    # 들여쓰기 4칸(tab 아님)을 엄격히 준수했습니다.
+                    text, img = crawler.get_article_data(art['link'])
                     
                     if text: 
                         full_contents.append(text)
                         valid_article_count += 1
+                        # 첫 번째로 발견된 유효한 이미지를 대표 이미지로 설정
                         if not main_image and img:
-                            if img.startswith("http://"): img = img.replace("http://", "https://")
+                            if img.startswith("http://"): 
+                                img = img.replace("http://", "https://")
                             main_image = img
                             
-                    if valid_article_count >= 30: break
+                    # 한 키워드당 최대 30개 기사까지 분석 (유료 버전 화력 활용)
+                    if valid_article_count >= 30: 
+                        break
 
+                # 기사가 단 1개라도 수집되었다면 AI 브리핑 생성을 진행합니다.
                 if not full_contents:
-                    print(f"      ☁️ '{kw}': 유효 기사 없음 (Skip)")
+                    print(f"      ☁️ '{kw}': 유효 기사 수집 실패 (Skip)")
                     continue
 
                 # [4단계] AI 브리핑 생성
                 briefing = ai_engine.synthesize_briefing(kw, full_contents)
                 
                 if not briefing:
-                    print(f"      🗑️ '{kw}': 내용 부실로 폐기")
+                    print(f"      🗑️ '{kw}': 브리핑 생성 실패로 폐기")
                     continue
                 
+                # 순위에 따른 점수 부여 (기본 7.0점 이상 유지)
                 ai_score = round(9.9 - (rank * 0.1), 1)
                 if ai_score < 7.0: ai_score = 7.0
 
+                # 이미지가 없을 경우 플레이스홀더 이미지 사용
                 final_img = main_image or f"https://placehold.co/600x400/111/cyan?text={kw}"
 
                 news_item = {
@@ -121,7 +133,7 @@ def run_master_scraper():
                     "type": k_type,
                     "title": f"[{kw}] News Update",
                     "summary": briefing,
-                    "link": None,
+                    "link": None, # 브리핑된 뉴스이므로 원문 링크는 생략하거나 첫 기사 링크 사용 가능
                     "image_url": final_img,
                     "score": ai_score,
                     "likes": 0, "dislikes": 0,
@@ -129,7 +141,9 @@ def run_master_scraper():
                     "published_at": datetime.now().isoformat()
                 }
                 category_news_list.append(news_item)
-                time.sleep(2.0) 
+                
+                # Groq 유료 버전은 RPM이 높으므로 대기 시간을 2초에서 0.5초로 단축 가능
+                time.sleep(0.5) 
                 
             except Exception as e:
                 print(f"      ⚠️ '{kw}' 처리 중 에러: {e}")
@@ -139,20 +153,15 @@ def run_master_scraper():
         if category_news_list:
             print(f"   💾 저장 시작: 총 {len(category_news_list)}개")
             
-            # 1. Live News: 모든 뉴스 저장 (사람+작품)
+            # 1. Live News: 모든 뉴스 저장
             repository.refresh_live_news(category, category_news_list)
             
-            # 2. Trending Rankings: 오직 'content' 타입만 골라서 랭킹 저장
+            # 2. Trending Rankings: 사이드바 랭킹 업데이트
             content_only_list = [n for n in category_news_list if n.get('type') == 'content']
             
-            # (만약 content가 부족하면 어쩔 수 없이 섞지만, 기본적으로는 content만 저장)
             final_ranking_list = []
-            if len(content_only_list) >= 3:
-                source_list = content_only_list
-            else:
-                source_list = category_news_list # 비상시 섞어서
+            source_list = content_only_list if len(content_only_list) >= 3 else category_news_list
 
-            # 랭킹 번호표 다시 붙이기 (1위부터 차례대로)
             for new_rank, item in enumerate(source_list[:10]):
                 ranked_item = item.copy()
                 ranked_item['rank'] = new_rank + 1
@@ -160,10 +169,8 @@ def run_master_scraper():
                 
             repository.update_sidebar_rankings(category, final_ranking_list)
             
-            # 3. Search Archive: 7.0점 이상
-            high_score_news = [n for n in category_news_list if n['score'] >= 7.0]
-            if high_score_news:
-                repository.save_to_archive(high_score_news)
+            # 3. Search Archive: 아카이브 저장
+            repository.save_to_archive(category_news_list)
 
     print("\n🎉 전체 업데이트 완료.")
 
