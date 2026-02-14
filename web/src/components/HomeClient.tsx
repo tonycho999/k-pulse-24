@@ -82,7 +82,7 @@ export default function HomeClient({ initialNews }: HomeClientProps) {
       } else {
         // ✅ [유지] 개별 카테고리는 소문자로 변환하여 조회 + '랭킹(rank)' 순 정렬
         query = query
-          .eq('category', newCategory.toLowerCase())
+          .eq('category', newCategory)
           .order('rank', { ascending: true });
       }
 
@@ -154,7 +154,7 @@ export default function HomeClient({ initialNews }: HomeClientProps) {
   // 렌더링을 위한 필터링된 뉴스 목록 계산
   const filteredDisplayNews = category === 'All' 
     ? news 
-    : news.filter(item => item.category === category.toLowerCase());
+    : news.filter(item => item.category === category);
   
   // 로그인 안 했을 때 보여줄 뉴스 (1개만)
   const displayedNews = user ? filteredDisplayNews : filteredDisplayNews.slice(0, 1);
