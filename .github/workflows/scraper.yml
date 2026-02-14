@@ -1,10 +1,10 @@
 name: K-Enter 24 Auto Scraper
 
 on:
-#  schedule:
-#   # 0분(정각)을 피해 23분과 53분에 실행되도록 설정 (약 30분 간격)
-#   - cron: '23,53 * * * *'
-  workflow_dispatch: # 수동 실행 버튼 유지
+  schedule:
+    # 매 시간 23분에 실행 (1시간 간격)
+    - cron: '23 * * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -21,27 +21,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 필요한 라이브러리들 설치
-          pip install requests beautifulsoup4 supabase groq python-dotenv feedparser
+          pip install -r requirements.txt
 
       - name: Run Scraper
         env:
-          # 1. Supabase 설정
           SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          
-          # 2. 뉴스 검색 (네이버)
-          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
-          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          
-          # 3. 메인 AI (Groq)
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          
-          # 4. [추가] 백업 AI 1 (OpenRouter)
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          
-          # 5. [추가] 백업 AI 2 (Hugging Face)
-          HF_API_TOKEN: ${{ secrets.HF_API_TOKEN }}
-
-        # 메인 코드 실행
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} 
+          # 주의: 구글 키 이름이 GOOGLE_API_KEY인지 확인하세요!
         run: python scraper/main.py
