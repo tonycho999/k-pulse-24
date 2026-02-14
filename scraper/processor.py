@@ -9,92 +9,67 @@ import database
 def run_category_process(category):
     print(f"\n🚀 [Processing] Category: {category}")
 
-    # 1. [수정됨] 3개의 키워드로 각각 검색 후 결과 합치기
+    # 1. 뉴스 수집
     queries = config.SEARCH_QUERIES.get(category, [])
     all_raw_items = []
-    seen_links = set() # 중복 기사 제거용
+    seen_links = set()
 
     print(f"   1️⃣ Fetching news with 3 queries...")
-    
+    if not queries:
+        print("      ⚠️ No queries defined.")
+        return
+
     for q in queries:
-        print(f"      - Query: '{q}'")
-        # 각 쿼리당 20개씩 수집 (총 60개 확보)
+        # [중요] 최신순 정렬(date) 필수
         items = naver_api.search_news_api(q, display=20)
-        
         for item in items:
-            # 중복 제거 (링크 기준)
             if item['link'] not in seen_links:
                 seen_links.add(item['link'])
                 all_raw_items.append(item)
-        
-        time.sleep(0.5) # API 매너 호출
+        time.sleep(0.5)
 
     if not all_raw_items:
-        print("   ❌ [Stop] No items found from all queries.")
+        print("   ❌ [Stop] No items found.")
         return
 
     print(f"      ✅ Total collected articles: {len(all_raw_items)}")
     
-    # AI에게 보낼 기사 제목 리스트 생성
-    titles = "\n".join([f"- {item['title']}" for item in all_raw_items])
-
-    # 2. 랭킹 & 검색 키워드 추출
+    # 2. 랭킹 선정
     print("   2️⃣ Extracting Keywords (Subject vs Person)...")
-
-    # 카테고리별 규칙 (지난번과 동일)
+    
+    # 프롬프트 규칙 (기존과 동일)
     if category == "K-Pop":
-        rule = """
-        - Target(DB): **SONG TITLE** (e.g., 'Super Shy').
-        - Search: **ARTIST/GROUP NAME** (e.g., 'NewJeans').
-        """
+        rule = "Target(DB): SONG TITLE / Search: ARTIST NAME"
     elif category == "K-Drama":
-        rule = """
-        - Target(DB): **DRAMA TITLE** (e.g., 'Squid Game').
-        - Search: **MAIN ACTOR NAME** (e.g., 'Lee Jung-jae').
-        """
+        rule = "Target(DB): DRAMA TITLE / Search: ACTOR NAME. Pick CURRENTLY AIRING dramas only."
     elif category == "K-Movie":
-        rule = """
-        - Target(DB): **MOVIE TITLE** (e.g., 'Exhuma').
-        - Search: **MAIN ACTOR NAME** (e.g., 'Choi Min-sik').
-        """
+        rule = "Target(DB): MOVIE TITLE / Search: ACTOR NAME. Pick CURRENT/UPCOMING movies."
     elif category == "K-Entertain":
-        rule = """
-        - Target(DB): **SHOW TITLE** (e.g., 'Running Man').
-        - Search: **CAST MEMBER NAME** (e.g., 'Yoo Jae-suk').
-        """
-    else: # K-Culture
-        rule = """
-        - Target(DB): Place, Food, or Tradition Name (English).
-        - Search: Korean Name of the Place/Food.
-        - **CRITICAL**: EXCLUDE ALL IDOLS/KPOP GROUPS. Focus only on Travel/Food.
-        """
+        rule = "Target(DB): SHOW TITLE / Search: CAST MEMBER."
+    else:
+        rule = "Target(DB): Place/Food Name. Search: Korean Name. EXCLUDE IDOLS."
 
     rank_prompt = f"""
     [Task]
-    Analyze these {len(all_raw_items)} news titles about {category}.
-    Extract Top 10 trends following these STRICT rules:
-    {rule}
-
-    [Output JSON]
-    {{ 
-      "rankings": [ 
-        {{ 
-          "rank": 1, 
-          "display_title_en": "English Title for DB", 
-          "search_keyword_kr": "Korean Name for Searching", 
-          "meta": "Short Info", 
-          "score": 95 
-        }} 
-      ] 
-    }}
+    Analyze these {len(all_raw_items)} news titles.
+    Extract Top 10 trends.
+    Rules: {rule}
+    Output JSON ONLY: {{ "rankings": [ {{ "rank": 1, "display_title_en": "Title", "search_keyword_kr": "SearchWord", "meta": "info", "score": 95 }} ] }}
+    
+    [News Titles]
+    {str([item['title'] for item in all_raw_items])}
     """
     
     rank_res = gemini_api.ask_gemini(rank_prompt)
-    if not rank_res: return
+    
+    # [수정됨] 여기서 실패하면 이유를 말하고 종료
+    if not rank_res or "rankings" not in rank_res:
+        print("   ❌ [Stop] AI failed to extract rankings. (JSON Error or Empty)")
+        return
 
     rankings = rank_res.get("rankings", [])[:10]
     
-    # 랭킹 저장
+    # DB 저장
     db_rankings = []
     for item in rankings:
         db_rankings.append({
@@ -107,7 +82,7 @@ def run_category_process(category):
         })
     database.save_rankings_to_db(db_rankings)
 
-    # 3. 타겟 선정 (도배 방지)
+    # 3. 타겟 선정
     print("   3️⃣ Selecting Target...")
     target_display = ""
     target_search = ""
@@ -123,7 +98,7 @@ def run_category_process(category):
             target_display = d_title
             target_search = s_word
             break
-    
+            
     if not target_display and rankings:
         target_display = rankings[0].get("display_title_en")
         target_search = rankings[0].get("search_keyword_kr")
@@ -149,26 +124,17 @@ def run_category_process(category):
             full_texts.append(item['description'])
             if not target_link: target_link = link
 
-    if not full_texts: return
+    if not full_texts: 
+        print("   ❌ [Stop] Failed to crawl details.")
+        return
 
-    # 5. 요약 작성 (영어)
+    # 5. 요약 작성
     print(f"   5️⃣ Summarizing '{target_display}'...")
     summary_prompt = f"""
-    [Context]
-    Category: {category}
-    Main Subject: {target_display}
-    Person involved: {target_search}
-    
-    [Source Articles (Korean)]
-    {str(full_texts)[:6000]}
-
     [Task]
-    Write a news summary in **ENGLISH**.
-    - Title: Must be about '{target_display}' (Song/Drama/Place).
-    - Summary: Focus on why '{target_search}' is in the news regarding '{target_display}'.
-
-    [Output JSON]
-    {{ "title": "English Title", "summary": "English Summary..." }}
+    Write a news summary in ENGLISH about '{target_display}' involving '{target_search}'.
+    Sources: {str(full_texts)[:6000]}
+    Output JSON: {{ "title": "English Title", "summary": "English Summary" }}
     """
     
     sum_res = gemini_api.ask_gemini(summary_prompt)
@@ -190,3 +156,5 @@ def run_category_process(category):
         database.save_news_to_archive([news_item])
         database.cleanup_old_data(category, config.MAX_ITEMS_PER_CATEGORY)
         print("   🎉 SUCCESS!")
+    else:
+        print("   ❌ [Stop] AI Summary Failed.")
