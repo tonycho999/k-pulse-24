@@ -20,7 +20,7 @@ def ask_gemini_with_search(prompt):
         "contents": [{"parts": [{"text": prompt}]}],
         "tools": [{"google_search_retrieval": {}}],
         "generationConfig": {
-            "temperature": 0.2 # 약간의 창의성을 위해 0.2로 조정
+            "temperature": 0.1 # 최대한 보수적으로 답변 유도
         }
     }
 
@@ -31,18 +31,26 @@ def ask_gemini_with_search(prompt):
                 res_json = resp.json()
                 text = res_json['candidates'][0]['content']['parts'][0]['text']
                 
-                # JSON 블록 추출
+                # [무적 파싱 로직] 텍스트 내에서 가장 바깥쪽 { } 를 찾아 추출
                 match = re.search(r'(\{.*\})', text, re.DOTALL)
                 if match:
                     json_str = match.group(1)
+                    # 1. 마크다운 코드 블록 기호 제거
+                    json_str = json_str.replace("```json", "").replace("```", "")
+                    # 2. 구글 검색 주석([1], [2] 등) 제거
+                    json_str = re.sub(r'\[\d+\]', '', json_str)
+                    # 3. 제어 문자 및 줄바꿈 정리
+                    clean_json = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
+                    
                     try:
-                        # 제어 문자 제거
-                        clean_json = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
                         return json.loads(clean_json)
-                    except json.JSONDecodeError as e:
-                        print(f"❌ JSON 파싱 에러: {e}")
-                        # 에러 파악을 위해 텍스트 끝부분 출력 (잘림 확인용)
-                        print(f"📄 응답 끝부분: ...{text[-100:]}")
+                    except json.JSONDecodeError:
+                        # 따옴표 중복 등 미세한 에러 수정 시도
+                        try:
+                            fixed_json = json_str.replace("'", '"')
+                            return json.loads(fixed_json)
+                        except:
+                            print(f"❌ JSON 최종 파싱 실패. 원문 확인 필요.")
             time.sleep(5)
         except Exception as e:
             print(f"⚠️ 시도 {attempt+1} 실패: {e}")
