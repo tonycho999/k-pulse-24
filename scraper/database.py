@@ -25,11 +25,24 @@ def save_error_log(error_data):
     if not supabase or not error_data: return
 
     try:
-        # 데이터가 딕셔너리인지 확인 후 저장
         supabase.table("error_logs").insert(error_data).execute()
         print(f"📁 [Debug] AI Response raw data logged to 'error_logs'.")
     except Exception as e:
         print(f"🚨 [Debug Error] Failed to save error log: {e}")
+
+def save_search_archive(archive_data):
+    """
+    [검색 기록용] AI가 검색한 원문 전체와 질문(Task)을 search_archive 테이블에 저장
+    """
+    if not supabase or not archive_data: return
+
+    try:
+        # search_archive 테이블에 질문(query)과 원문(raw_result) 등을 저장합니다.
+        supabase.table("search_archive").insert(archive_data).execute()
+        print(f"📂 [Archive] Saved AI raw search result to 'search_archive'.")
+    except Exception as e:
+        # 테이블 구조가 다르거나 컬럼이 없을 경우를 대비한 에러 메시지
+        print(f"⚠️ DB Save Error (search_archive): {e}")
 
 def is_keyword_used_recently(category, keyword, hours=4):
     """
@@ -38,10 +51,8 @@ def is_keyword_used_recently(category, keyword, hours=4):
     if not supabase: return False
     
     try:
-        # 현재 시간(UTC) - N시간
         time_limit = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
         
-        # live_news 테이블에서 검사
         res = supabase.table("live_news")\
             .select("id", count="exact")\
             .eq("category", category)\
@@ -51,7 +62,7 @@ def is_keyword_used_recently(category, keyword, hours=4):
             
         return res.count > 0
     except Exception as e:
-        print(f"   ⚠️ DB Check Error: {e}")
+        print(f"    ⚠️ DB Check Error: {e}")
         return False
 
 def save_news_to_live(data_list):
@@ -59,62 +70,54 @@ def save_news_to_live(data_list):
     if not supabase or not data_list: return
 
     try:
-        # upsert 사용 (기존 데이터 업데이트 또는 신규 삽입)
         supabase.table("live_news").upsert(data_list).execute()
-        print(f"   💾 [Live] Saved {len(data_list)} items to 'live_news'.")
+        print(f"    💾 [Live] Saved {len(data_list)} items to 'live_news'.")
     except Exception as e:
-        print(f"   ⚠️ DB Save Error (live_news): {e}")
+        print(f"    ⚠️ DB Save Error (live_news): {e}")
 
 def save_news_to_archive(data_list):
-    """[영구 보관용] search_archive 테이블에 저장"""
+    """[기사 보관용] 뉴스 기사 데이터를 search_archive 또는 별도 테이블에 복사 저장"""
     if not supabase or not data_list: return
 
     try:
-        # [중요 수정] ID 충돌 방지 로직
         clean_data = []
         for item in data_list:
-            new_item = item.copy() # 복사
+            new_item = item.copy()
             if 'id' in new_item:
-                del new_item['id'] # live_news에서 생긴 ID 제거
+                del new_item['id']
             clean_data.append(new_item)
 
-        # 아카이브에 저장
         supabase.table("search_archive").insert(clean_data).execute()
-        print(f"   📦 [Archive] Saved {len(clean_data)} items to 'search_archive'.")
+        print(f"    📦 [News Archive] Saved {len(clean_data)} items to 'search_archive'.")
     except Exception as e:
-        print(f"   ⚠️ DB Save Error (search_archive): {e}")
+        print(f"    ⚠️ DB Save Error (news_to_archive): {e}")
 
 def save_rankings_to_db(rank_list):
     """[순위표] live_rankings 테이블에 저장 (기존 순위 삭제 후 갱신)"""
     if not supabase or not rank_list: return
 
     try:
-        # 1. 해당 카테고리의 기존 랭킹 싹 지우기 (초기화)
         category = rank_list[0].get("category")
         if category:
             supabase.table("live_rankings").delete().eq("category", category).execute()
 
-        # 2. 새로운 랭킹 저장
         supabase.table("live_rankings").insert(rank_list).execute()
-        print(f"   🏆 Updated rankings for {category}.")
+        print(f"    🏆 Updated rankings for {category}.")
         
     except Exception as e:
-        print(f"   ⚠️ DB Save Error (live_rankings): {e}")
+        print(f"    ⚠️ DB Save Error (live_rankings): {e}")
 
 def cleanup_old_data(category, max_limit=30):
     """[청소] live_news 테이블에서 오래된 데이터 삭제 (30개 유지)"""
     if not supabase: return
 
     try:
-        # 1. 개수 확인
         res = supabase.table("live_news").select("id", count="exact").eq("category", category).execute()
         count = res.count
 
         if count > max_limit:
-            # 2. 지워야 할 개수 계산
             items_to_remove = count - max_limit
             
-            # 3. 오래된 순으로 ID 조회
             old_rows = supabase.table("live_news")\
                 .select("id")\
                 .eq("category", category)\
@@ -126,7 +129,7 @@ def cleanup_old_data(category, max_limit=30):
             
             if ids:
                 supabase.table("live_news").delete().in_("id", ids).execute()
-                print(f"   🧹 [Cleanup] Removed {len(ids)} old items from 'live_news'.")
+                print(f"    🧹 [Cleanup] Removed {len(ids)} old items from 'live_news'.")
                 
     except Exception as e:
-        print(f"   ⚠️ Cleanup Error: {e}")
+        print(f"    ⚠️ Cleanup Error: {e}")
