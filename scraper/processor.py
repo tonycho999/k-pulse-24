@@ -1,8 +1,11 @@
 import gemini_api
 import database
 import naver_api
+import json
+import re
 from datetime import datetime
 
+# 카테고리별 6단계 순환 질문 세트 (검색어 유지)
 PROMPT_VERSIONS = {
     "K-Pop": [
         "최근 24시간 내 언급량이 가장 압도적인 K-pop 가수(그룹)를 선정해 심층 기사 1개를 쓰고 Top 10 곡 순위를 알려줘.",
@@ -52,22 +55,22 @@ def run_category_process(category, run_count):
     v_idx = run_count % 6
     task = PROMPT_VERSIONS[category][v_idx]
 
-    # [절대 규칙] 한국어 지시 사항 강화
+    # [절대 규칙] 프롬프트 엔지니어링 강화: JSON 구조를 파괴하는 요소를 명시적으로 차단
     final_prompt = f"""
-    실시간 뉴스 검색을 사용하여 다음 과제를 수행해: {task}
+    실시간 뉴스 검색을 사용하여 다음 과제를 수행하라: {task}
     
     [출력 규칙 - 반드시 지킬 것]
-    1. 반드시 아래 JSON 구조로만 응답해.
-    2. JSON 외에 '알겠습니다' 같은 인사말이나 설명을 절대 하지 마.
-    3. 코드 블록(```json)을 쓰지 말고 순수 텍스트로만 보내.
-    4. 구글 검색 출처 번호(예: [1], [2])를 본문에 절대 포함하지 마.
-    5. 기사 본문과 제목은 영어(English)로 작성해.
-    
+    1. 오직 유효한 JSON 객체 하나만 응답하라. 부연 설명이나 인사말은 생략한다.
+    2. 마크다운 코드 블록(```json)을 사용하지 말고 순수 텍스트로만 보내라.
+    3. 구글 검색 출처 주석 번호(예: [1], [2])를 기사 본문과 순위 데이터에 절대 포함하지 마라.
+    4. 기사 제목(headline)과 본문(content)은 반드시 전문적인 영어(English)로 작성하라.
+    5. JSON의 모든 값은 큰따옴표(")로 감싸고, 본문 내의 따옴표는 백슬래시(\")로 이스케이프 처리하라.
+
     {{
       "target_kr": "인물명(한국어)",
       "target_en": "Name(English)",
       "articles": [
-        {{"headline": "English Title", "content": "English Content"}}
+        {{"headline": "English Headline", "content": "Detailed English Content"}}
       ],
       "rankings": [
         {{"rank": 1, "title_en": "Title(En)", "title_kr": "제목(Kr)", "score": 95}}
@@ -75,32 +78,54 @@ def run_category_process(category, run_count):
     }}
     """
 
+    # AI 호출
     data = gemini_api.ask_gemini_with_search(final_prompt)
-    if not data or "articles" not in data:
-        print(f"❌ {category} 데이터 추출 실패 (응답 포맷 오류)")
+
+    # 방어적 파싱 로직: 데이터가 없거나 형식이 잘못된 경우 처리
+    if not data or not isinstance(data, dict) or "articles" not in data:
+        print(f"❌ {category} 데이터 추출 실패: AI 응답이 유효한 JSON 구조가 아닙니다.")
         return
 
-    # 랭킹 저장
-    database.save_rankings_to_db(data.get("rankings", []))
+    # 1. 랭킹 데이터 클리닝 및 저장
+    # AI가 본문에 주석을 남겼을 경우를 대비해 정규표현식으로 재필터링
+    clean_rankings = []
+    for item in data.get("rankings", []):
+        clean_rankings.append({
+            "rank": item.get("rank"),
+            "title_en": re.sub(r'\[\d+\]', '', str(item.get("title_en"))).strip(),
+            "title_kr": re.sub(r'\[\d+\]', '', str(item.get("title_kr"))).strip(),
+            "score": item.get("score", 90)
+        })
+    database.save_rankings_to_db(clean_rankings)
 
-    # 이미지 수집
-    target_kr = data.get("target_kr")
+    # 2. 엔티티 기반 정보 수집
+    target_kr = data.get("target_kr", "").strip()
+    target_en = data.get("target_en", "").strip()
+    
+    # 네이버 API를 통한 이미지 수집
+    print(f"📸 '{target_kr}' 관련 최적 이미지 수집 중...")
     final_image = naver_api.get_target_image(target_kr)
 
-    # 기사 저장
-    target_en = data.get("target_en")
+    # 3. 기사 데이터 정규화 및 저장
     news_items = []
     for art in data.get("articles", []):
+        # 본문 내 주석 제거 및 클리닝
+        raw_content = art.get("content", "")
+        clean_content = re.sub(r'\[\d+\]', '', raw_content).strip()
+        
         news_items.append({
             "category": category,
             "keyword": target_en,
-            "title": art.get("headline"),
-            "summary": art.get("content"),
+            "title": art.get("headline", "Breaking News"),
+            "summary": clean_content,
             "image_url": final_image,
             "score": 100,
             "created_at": datetime.now().isoformat(),
             "likes": 0
         })
     
-    database.save_news_to_live(news_items)
-    print(f"🎉 성공: {target_en} 관련 기사 발행 완료.")
+    if news_items:
+        database.save_news_to_live(news_items)
+        print(f"🎉 성공: '{target_en}' 관련 기사 발행 및 랭킹 업데이트 완료.")
+    else:
+        print(f"⚠️ {category} 발행할 기사 데이터가 존재하지 않습니다.")
